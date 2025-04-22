@@ -11,16 +11,16 @@ class ModelMeanType(enum.Enum):
 class ModelVarType(enum.Enum):
     """决定反向过程中协方差的计算方式，用于采样而非训练"""
     LEARNED = enum.auto()
-    FIXED_SMALL = enum.auto()
-    FIXED_LARGE = enum.auto()
-    LEARNED_RANGE = enum.auto()
+    FIXED_SMALL = enum.auto()   # 固定小方差，betas
+    FIXED_LARGE = enum.auto()   # 固定大方差，posterior_variance
+    LEARNED_RANGE = enum.auto() # 
 
 class LossType(enum.Enum):
     """模型的损失计算方式"""
-    MSE = enum.auto()  # use raw MSE loss (and KL when learning variances)
-    RESCALED_MSE = enum.auto()  # use raw MSE loss (with RESCALED_KL when learning variances)
-    KL = enum.auto()  # use the variational lower-bound
-    RESCALED_KL = enum.auto()  # like KL, but rescale to estimate the full VLB
+    MSE = enum.auto()       # 使用原始 MSE 损失（学习方差时使用 KL）
+    RESCALED_MSE = enum.auto()  # 使用原始 MSE 损失（学习方差时使用 RESCALED_KL）
+    KL = enum.auto()        # 使用变分下界 (variational lower-bound)
+    RESCALED_KL = enum.auto()   # 与 KL 相似，但要重新缩放以估算整个 VLB
 
     def is_vb(self):
         return self == LossType.KL or self == LossType.RESCALED_KL
