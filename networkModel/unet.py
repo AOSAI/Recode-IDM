@@ -8,11 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .fp16_util import convert_module_to_f16, convert_module_to_f32
-from .nn import (
-    SiLU,
-    conv_nd,
-    linear,
-    avg_pool_nd,
+from .utils import (
+    conv_transpose_nd, conv_nd, linear, avg_pool_nd,
     zero_module,
     normalization,
     timestep_embedding,
@@ -48,51 +45,24 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
 
 
 class Upsample(nn.Module):
-    """
-    An upsampling layer with an optional convolution.
-
-    :param channels: channels in the inputs and outputs.
-    :param use_conv: a bool determining if a convolution is applied.
-    :param dims: determines if the signal is 1D, 2D, or 3D. If 3D, then
-                 upsampling occurs in the inner-two dimensions.
-    """
-
-    def __init__(self, channels, use_conv, dims=2):
+    """上采样, 直接使用 ConvTranspose2d"""
+    
+    def __init__(self, channels, dims=2):
         super().__init__()
         self.channels = channels
-        self.use_conv = use_conv
-        self.dims = dims
-        if use_conv:
-            self.conv = conv_nd(dims, channels, channels, 3, padding=1)
+        self.op = conv_transpose_nd(dims, channels, channels, kernel_size=4, stride=2, padding=1)
 
     def forward(self, x):
         assert x.shape[1] == self.channels
-        if self.dims == 3:
-            x = F.interpolate(
-                x, (x.shape[2], x.shape[3] * 2, x.shape[4] * 2), mode="nearest"
-            )
-        else:
-            x = F.interpolate(x, scale_factor=2, mode="nearest")
-        if self.use_conv:
-            x = self.conv(x)
-        return x
+        return self.op(x)
 
 
 class Downsample(nn.Module):
-    """
-    A downsampling layer with an optional convolution.
-
-    :param channels: channels in the inputs and outputs.
-    :param use_conv: a bool determining if a convolution is applied.
-    :param dims: determines if the signal is 1D, 2D, or 3D. If 3D, then
-                 downsampling occurs in the inner-two dimensions.
-    """
+    """下采样, 可选方式：卷积网络层、平均池化网络层"""
 
     def __init__(self, channels, use_conv, dims=2):
         super().__init__()
         self.channels = channels
-        self.use_conv = use_conv
-        self.dims = dims
         stride = 2 if dims != 3 else (1, 2, 2)
         if use_conv:
             self.op = conv_nd(dims, channels, channels, 3, stride=stride, padding=1)
@@ -105,19 +75,7 @@ class Downsample(nn.Module):
 
 
 class ResBlock(TimestepBlock):
-    """
-    A residual block that can optionally change the number of channels.
-
-    :param channels: the number of input channels.
-    :param emb_channels: the number of timestep embedding channels.
-    :param dropout: the rate of dropout.
-    :param out_channels: if specified, the number of out channels.
-    :param use_conv: if True and out_channels is specified, use a spatial
-        convolution instead of a smaller 1x1 convolution to change the
-        channels in the skip connection.
-    :param dims: determines if the signal is 1D, 2D, or 3D.
-    :param use_checkpoint: if True, use gradient checkpointing on this module.
-    """
+    """可选择更改通道数量的残差块"""
 
     def __init__(
         self,
@@ -141,7 +99,7 @@ class ResBlock(TimestepBlock):
 
         self.in_layers = nn.Sequential(
             normalization(channels),
-            SiLU(),
+            nn.SiLU(),
             conv_nd(dims, channels, self.out_channels, 3, padding=1),
         )
         self.emb_layers = nn.Sequential(
@@ -276,27 +234,7 @@ class QKVAttention(nn.Module):
 
 
 class UNetModel(nn.Module):
-    """
-    The full UNet model with attention and timestep embedding.
-
-    :param in_channels: channels in the input Tensor.
-    :param model_channels: base channel count for the model.
-    :param out_channels: channels in the output Tensor.
-    :param num_res_blocks: number of residual blocks per downsample.
-    :param attention_resolutions: a collection of downsample rates at which
-        attention will take place. May be a set, list, or tuple.
-        For example, if this contains 4, then at 4x downsampling, attention
-        will be used.
-    :param dropout: the dropout probability.
-    :param channel_mult: channel multiplier for each level of the UNet.
-    :param conv_resample: if True, use learned convolutions for upsampling and
-        downsampling.
-    :param dims: determines if the signal is 1D, 2D, or 3D.
-    :param num_classes: if specified (as an int), then this model will be
-        class-conditional with `num_classes` classes.
-    :param use_checkpoint: use gradient checkpointing to reduce memory usage.
-    :param num_heads: the number of attention heads in each attention layer.
-    """
+    """The full UNet model with attention and timestep embedding."""
 
     def __init__(
         self,

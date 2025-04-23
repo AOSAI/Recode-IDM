@@ -17,10 +17,10 @@ class GaussianDiffusion:
         self.timesteps = timesteps
         self.device = device
 
-        # 获取所有噪声调度参数，并注册为 self.xxx，转移到 device 上
+        # 获取所有噪声调度参数，并注册为 self.xxx
         noise_schedule = get_noise_schedule(timesteps)
         for k, v in noise_schedule.items():
-            setattr(self, k, torch.from_numpy(v).to(device))
+            setattr(self, k, v)
 
     def q_sample(self, x_start, t, noise=None):
         """从原始图像添加噪声, 模拟前向扩散过程的采样"""
@@ -53,62 +53,58 @@ class GaussianDiffusion:
         log_variance = extract(self.log_one_minus_alphas_cumprod, t, x_start.shape)
         return mean, variance, log_variance
     
-    def p_mean_variance(
-        self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None
-    ):
-        """
-        应用模型得到 p(x_{t-1} | x_t)，以及对初始 x x_0 的预测。
-
-        :param model: 该模型的输入是一个信号和一批时间步。
-        :param x: the [N x C x ...] tensor at time t.
-        :param t: a 1-D Tensor of timesteps.
-        :param clip_denoised: if True, clip the denoised signal into [-1, 1].
-        :param denoised_fn: 如果不是 None, 则是用于 x_start 预测值采样前的函数。
-                            在 clip_denoised 之前应用。
-        :param model_kwargs: 如果不是 None, 则是要传递给模型的额外关键字参数的 dict。这可用于调节。
-        :return: a dict with the following keys:
-                 - 'mean': the model mean output.
-                 - 'variance': the model variance output.
-                 - 'log_variance': the log of 'variance'.
-                 - 'pred_xstart': the prediction for x_0.
-        """
+    def predict_x0_from_eps(self, x_t, t, noise):
+        """根据模型预测的噪声 ε，反推出原始图像 x_0 的估计值"""
+        return (
+            extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
+            extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
+        )
+    
+    def predict_x0_from_xprev(self, x_t, t, xprev):
+        """根据 x_t 和 x_(t-1)，反推 x_0 的估计值"""
+        return (  # (xprev - coef2 * x_t) / coef1
+            extract(1.0 / self.posterior_mean_coef1, t, x_t.shape) * xprev - 
+            extract(self.posterior_mean_coef2 / self.posterior_mean_coef1, t, x_t.shape)
+            * x_t
+        )
+    
+    def p_mean_variance(self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None):
+        """返回模型预测的噪声均值、方差（固定、可学习）"""
         if model_kwargs is None:
             model_kwargs = {}
 
-        B, C = x.shape[:2]
+        B, C = x.shape[:2] 
         assert t.shape == (B,)
         model_output = model(x, self._scale_timesteps(t), **model_kwargs)
 
         if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
+            # --------------- 可学习方差，通道数加倍 ---------------
             assert model_output.shape == (B, C * 2, *x.shape[2:])
             model_output, model_var_values = torch.split(model_output, C, dim=1)
+            
             if self.model_var_type == ModelVarType.LEARNED:
                 model_log_variance = model_var_values
                 model_variance = torch.exp(model_log_variance)
             else:
-                min_log = extract(
-                    self.posterior_log_variance_clipped, t, x.shape
-                )
+                min_log = extract(self.posterior_log_variance_clipped, t, x.shape)
                 max_log = extract(torch.log(self.betas), t, x.shape)
                 # The model_var_values is [-1, 1] for [min_var, max_var].
                 frac = (model_var_values + 1) / 2
                 model_log_variance = frac * max_log + (1 - frac) * min_log
                 model_variance = torch.exp(model_log_variance)
-        else:
-            model_variance, model_log_variance = {
-                # for fixedlarge, we set the initial (log-)variance like so
-                # to get a better decoder log likelihood.
-                ModelVarType.FIXED_LARGE: (
-                    np.append(self.posterior_variance[1], self.betas[1:]),
-                    np.log(np.append(self.posterior_variance[1], self.betas[1:])),
-                ),
-                ModelVarType.FIXED_SMALL: (
-                    self.posterior_variance,
-                    self.posterior_log_variance_clipped,
-                ),
-            }[self.model_var_type]
+        elif self.model_var_type in [ModelVarType.FIXED_LARGE, ModelVarType.FIXED_SMALL]:
+            # --------------- 固定方差 ---------------
+            if self.model_var_type == ModelVarType.FIXED_LARGE:
+                model_variance = np.append(self.posterior_variance[1], self.betas[1:])
+                model_log_variance = np.log(np.append(self.posterior_variance[1], self.betas[1:]))
+            else:
+                model_variance = self.posterior_variance
+                model_log_variance = self.posterior_log_variance_clipped
+
             model_variance = extract(model_variance, t, x.shape)
             model_log_variance = extract(model_log_variance, t, x.shape)
+        else:
+            raise NotImplementedError(f"Unknown model_var_type: {self.model_var_type}")
 
         def process_xstart(x):
             if denoised_fn is not None:
@@ -119,7 +115,7 @@ class GaussianDiffusion:
 
         if self.model_mean_type == ModelMeanType.PREVIOUS_X:
             pred_xstart = process_xstart(
-                self._predict_xstart_from_xprev(x_t=x, t=t, xprev=model_output)
+                self.predict_x0_from_xprev(x, t, model_output)
             )
             model_mean = model_output
         elif self.model_mean_type in [ModelMeanType.START_X, ModelMeanType.EPSILON]:
@@ -127,17 +123,13 @@ class GaussianDiffusion:
                 pred_xstart = process_xstart(model_output)
             else:
                 pred_xstart = process_xstart(
-                    self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
+                    self.predict_x0_from_eps(x, t, model_output)
                 )
-            model_mean, _, _ = self.q_posterior_mean_variance(
-                x_start=pred_xstart, x_t=x, t=t
-            )
+            model_mean, _, _ = self.q_posterior(pred_xstart, x, t)
         else:
             raise NotImplementedError(self.model_mean_type)
 
-        assert (
-            model_mean.shape == model_log_variance.shape == pred_xstart.shape == x.shape
-        )
+        assert (model_mean.shape == model_log_variance.shape == pred_xstart.shape == x.shape)
         return {
             "mean": model_mean,
             "variance": model_variance,
@@ -212,13 +204,7 @@ class SamplerDDPM:
         self.betas = diffusion.betas
         self.sqrt_recip_alphas_cumprod = diffusion.sqrt_recip_alphas_cumprod
         self.sqrt_recipm1_alphas_cumprod = diffusion.sqrt_recipm1_alphas_cumprod
-
-    def predict_x0_from_eps(self, x_t, t, noise):
-        """根据模型预测的噪声 ε，反推出原始图像 x_0 的估计值"""
-        return (
-            extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
-            extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
-        )
+        self.predict_x0_from_eps = diffusion.predict_x0_from_eps
 
     def p_sample(self, model, x_t, t):
         """

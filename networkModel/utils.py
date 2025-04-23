@@ -3,26 +3,36 @@ Various utilities for neural networks.
 """
 
 import math
-
 import torch as th
 import torch.nn as nn
-
-
-# PyTorch 1.7 has SiLU, but we support PyTorch 1.5.
-class SiLU(nn.Module):
-    def forward(self, x):
-        return x * th.sigmoid(x)
 
 
 class GroupNorm32(nn.GroupNorm):
     def forward(self, x):
         return super().forward(x.float()).type(x.dtype)
+    
+def normalization(channels):
+    """
+    Make a standard normalization layer.
 
+    :param channels: number of input channels.
+    :return: an nn.Module for normalization.
+    """
+    return GroupNorm32(32, channels)
+
+# --------------- 网络层组件 ---------------
+def conv_transpose_nd(dims, *args, **kwargs):
+    """Create a 1D, 2D, or 3D transposed convolution module."""
+    if dims == 1:
+        return nn.ConvTranspose1d(*args, **kwargs)
+    elif dims == 2:
+        return nn.ConvTranspose2d(*args, **kwargs)
+    elif dims == 3:
+        return nn.ConvTranspose3d(*args, **kwargs)
+    raise ValueError(f"unsupported dimensions: {dims}")
 
 def conv_nd(dims, *args, **kwargs):
-    """
-    Create a 1D, 2D, or 3D convolution module.
-    """
+    """Create a 1D, 2D, or 3D convolution module."""
     if dims == 1:
         return nn.Conv1d(*args, **kwargs)
     elif dims == 2:
@@ -31,18 +41,12 @@ def conv_nd(dims, *args, **kwargs):
         return nn.Conv3d(*args, **kwargs)
     raise ValueError(f"unsupported dimensions: {dims}")
 
-
 def linear(*args, **kwargs):
-    """
-    Create a linear module.
-    """
+    """Create a linear module."""
     return nn.Linear(*args, **kwargs)
 
-
 def avg_pool_nd(dims, *args, **kwargs):
-    """
-    Create a 1D, 2D, or 3D average pooling module.
-    """
+    """Create a 1D, 2D, or 3D average pooling module."""
     if dims == 1:
         return nn.AvgPool1d(*args, **kwargs)
     elif dims == 2:
@@ -90,25 +94,17 @@ def mean_flat(tensor):
     return tensor.mean(dim=list(range(1, len(tensor.shape))))
 
 
-def normalization(channels):
-    """
-    Make a standard normalization layer.
 
-    :param channels: number of input channels.
-    :return: an nn.Module for normalization.
-    """
-    return GroupNorm32(32, channels)
 
 
 def timestep_embedding(timesteps, dim, max_period=10000):
     """
     Create sinusoidal timestep embeddings.
 
-    :param timesteps: a 1-D Tensor of N indices, one per batch element.
-                      These may be fractional.
-    :param dim: the dimension of the output.
-    :param max_period: controls the minimum frequency of the embeddings.
-    :return: an [N x dim] Tensor of positional embeddings.
+    :param timesteps: LongTensor, 形状为 [batch_size], 表示每张图像的时间步t
+    :param dim: int, 时间嵌入的维度 (通常等于 base_channels * 4)
+    :param max_period: 控制嵌入的最小频率
+    :return: Tensor: [batch_size, dim] 的时间嵌入向量
     """
     half = dim // 2
     freqs = th.exp(
