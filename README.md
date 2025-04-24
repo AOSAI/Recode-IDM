@@ -1,6 +1,6 @@
 ## 1. 代码复现-IDM
 
-该代码参考了 [improved-diffusion](https://github.com/openai/improved-diffusion) ，以软件工程的角度重构了代码的文件结构，同时写了 markdown 版的小白指南。欢迎各位道友用于学习，改造，和实验。
+该代码参考了 [improved-diffusion](https://github.com/openai/improved-diffusion) ，以软件工程的角度重构了代码的文件结构，有些地方有一点点的小修改，同时写了 markdown 版的小白指南。欢迎各位道友用于学习，改造，和实验。
 
 关键词：可学习方差、余弦噪声表、重要性采样、DDIM 加速采样
 

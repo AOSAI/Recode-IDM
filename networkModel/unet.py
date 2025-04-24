@@ -1,7 +1,5 @@
 from abc import abstractmethod
-
 import math
-
 import numpy as np
 import torch as th
 import torch.nn as nn
@@ -10,23 +8,18 @@ import torch.nn.functional as F
 from .fp16_util import convert_module_to_f16, convert_module_to_f32
 from .utils import (
     conv_transpose_nd, conv_nd, linear, avg_pool_nd,
-    zero_module,
-    normalization,
+    zero_module, normalization,
     timestep_embedding,
-    checkpoint,
+    CheckpointFunction,
 )
 
 
 class TimestepBlock(nn.Module):
-    """
-    Any module where forward() takes timestep embeddings as a second argument.
-    """
+    """继承 nn.Module, 并将 forward 方法变成一个抽象方法(只声明不实现)"""
 
     @abstractmethod
     def forward(self, x, emb):
-        """
-        Apply the module to `x` given `emb` timestep embeddings.
-        """
+        """让其强制转变为 x 和 emb 两个参数"""
 
 
 class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
@@ -50,7 +43,7 @@ class Upsample(nn.Module):
     def __init__(self, channels, dims=2):
         super().__init__()
         self.channels = channels
-        self.op = conv_transpose_nd(dims, channels, channels, kernel_size=4, stride=2, padding=1)
+        self.op = conv_transpose_nd(dims, channels, channels, 4, stride=2, padding=1)
 
     def forward(self, x):
         assert x.shape[1] == self.channels
@@ -75,13 +68,10 @@ class Downsample(nn.Module):
 
 
 class ResBlock(TimestepBlock):
-    """可选择更改通道数量的残差块"""
+    """残差块, 新关键词: 时间步嵌入方式、模块参数清零、梯度检查点"""
 
     def __init__(
-        self,
-        channels,
-        emb_channels,
-        dropout,
+        self, channels, emb_channels, dropout,
         out_channels=None,
         use_conv=False,
         use_scale_shift_norm=False,
@@ -103,7 +93,7 @@ class ResBlock(TimestepBlock):
             conv_nd(dims, channels, self.out_channels, 3, padding=1),
         )
         self.emb_layers = nn.Sequential(
-            SiLU(),
+            nn.SiLU(),
             linear(
                 emb_channels,
                 2 * self.out_channels if use_scale_shift_norm else self.out_channels,
@@ -111,39 +101,35 @@ class ResBlock(TimestepBlock):
         )
         self.out_layers = nn.Sequential(
             normalization(self.out_channels),
-            SiLU(),
+            nn.SiLU(),
             nn.Dropout(p=dropout),
-            zero_module(
-                conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)
-            ),
+            zero_module(conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)),
         )
 
         if self.out_channels == channels:
             self.skip_connection = nn.Identity()
         elif use_conv:
-            self.skip_connection = conv_nd(
-                dims, channels, self.out_channels, 3, padding=1
-            )
+            self.skip_connection = conv_nd(dims, channels, self.out_channels, 3, padding=1)
         else:
             self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
 
     def forward(self, x, emb):
-        """
-        Apply the block to a Tensor, conditioned on a timestep embedding.
-
-        :param x: an [N x C x ...] Tensor of features.
-        :param emb: an [N x emb_channels] Tensor of timestep embeddings.
-        :return: an [N x C x ...] Tensor of outputs.
-        """
-        return checkpoint(
-            self._forward, (x, emb), self.parameters(), self.use_checkpoint
-        )
+        # --------------- 是否使用梯度检查点 ---------------
+        if self.use_checkpoint:
+            inputs = (x, emb)
+            args = tuple(inputs) + tuple(self.parameters())
+            return CheckpointFunction.apply(self._forward, len(inputs), *args)
+        else:
+            return self._forward
 
     def _forward(self, x, emb):
         h = self.in_layers(x)
+        
         emb_out = self.emb_layers(emb).type(h.dtype)
         while len(emb_out.shape) < len(h.shape):
             emb_out = emb_out[..., None]
+        
+        # --------------- 选择时间步嵌入的方式 ---------------
         if self.use_scale_shift_norm:
             out_norm, out_rest = self.out_layers[0], self.out_layers[1:]
             scale, shift = th.chunk(emb_out, 2, dim=1)
@@ -274,7 +260,7 @@ class UNetModel(nn.Module):
         time_embed_dim = model_channels * 4
         self.time_embed = nn.Sequential(
             linear(model_channels, time_embed_dim),
-            SiLU(),
+            nn.SiLU(),
             linear(time_embed_dim, time_embed_dim),
         )
 
@@ -370,7 +356,7 @@ class UNetModel(nn.Module):
 
         self.out = nn.Sequential(
             normalization(ch),
-            SiLU(),
+            nn.SiLU(),
             zero_module(conv_nd(dims, model_channels, out_channels, 3, padding=1)),
         )
 
