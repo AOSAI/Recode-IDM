@@ -44,3 +44,7 @@ Recode-IDM/
 ## 参考文献
 
 [1. LittleNyima 大佬的博客 - 扩散模型（三）](https://littlenyima.github.io/posts/15-improved-denoising-diffusion-probabilistic-models/index.html)
+
+[2. transformer 中的 QKV 注意力机制 - 详细解读](https://zhuanlan.zhihu.com/p/414084879)
+
+[3. transformer 中的 QKV 注意力机制 - 通俗理解](https://blog.csdn.net/Weary_PJ/article/details/123531732)

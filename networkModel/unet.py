@@ -22,11 +22,8 @@ class TimestepBlock(nn.Module):
         """让其强制转变为 x 和 emb 两个参数"""
 
 
-class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
-    """
-    A sequential module that passes timestep embeddings to the children that
-    support it as an extra input.
-    """
+class TimeEmbedSeq(nn.Sequential, TimestepBlock):
+    """一个顺序模块，将时间步嵌入作为额外输入传递给支持它的子模块"""
 
     def forward(self, x, emb):
         for layer in self:
@@ -142,12 +139,7 @@ class ResBlock(TimestepBlock):
 
 
 class AttentionBlock(nn.Module):
-    """
-    An attention block that allows spatial positions to attend to each other.
-
-    Originally ported from here, but adapted to the N-d case.
-    https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/models/unet.py#L66.
-    """
+    """允许空间位置相互注意"""
 
     def __init__(self, channels, num_heads=1, use_checkpoint=False):
         super().__init__()
@@ -161,60 +153,50 @@ class AttentionBlock(nn.Module):
         self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
 
     def forward(self, x):
-        return checkpoint(self._forward, (x,), self.parameters(), self.use_checkpoint)
+        if self.use_checkpoint:
+            inputs = (x,)
+            args = tuple(inputs) + tuple(self.parameters())
+            return CheckpointFunction.apply(self._forward, len(inputs), *args)
+        else:
+            return self._forward
 
     def _forward(self, x):
+        # 保存原始的 B、C、H、W，然后将图像 x 的空间形状压缩为一维 [b, c, hw]
         b, c, *spatial = x.shape
         x = x.reshape(b, c, -1)
+        
+        # 归一化 + QKV投影，为多头注意力 reshape 维度
         qkv = self.qkv(self.norm(x))
         qkv = qkv.reshape(b * self.num_heads, -1, qkv.shape[2])
+        
+        # 进入注意力模块计算，恢复原有通道维度
         h = self.attention(qkv)
         h = h.reshape(b, -1, h.shape[-1])
+        
+        # 输出映射，残差连接 + 恢复原有的图像结构
         h = self.proj_out(h)
         return (x + h).reshape(b, c, *spatial)
 
 
 class QKVAttention(nn.Module):
-    """
-    A module which performs QKV attention.
-    """
+    """ A module which performs QKV attention. """
 
     def forward(self, qkv):
-        """
-        Apply QKV attention.
-
-        :param qkv: an [N x (C * 3) x T] tensor of Qs, Ks, and Vs.
-        :return: an [N x C x T] tensor after attention.
-        """
+        """ Apply QKV attention. """
         ch = qkv.shape[1] // 3
         q, k, v = th.split(qkv, ch, dim=1)
         scale = 1 / math.sqrt(math.sqrt(ch))
-        weight = th.einsum(
-            "bct,bcs->bts", q * scale, k * scale
-        )  # More stable with f16 than dividing afterwards
+        # More stable with f16 than dividing afterwards
+        weight = th.einsum("bct,bcs->bts", q * scale, k * scale)
         weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
         return th.einsum("bts,bcs->bct", weight, v)
 
     @staticmethod
     def count_flops(model, _x, y):
-        """
-        A counter for the `thop` package to count the operations in an
-        attention operation.
-
-        Meant to be used like:
-
-            macs, params = thop.profile(
-                model,
-                inputs=(inputs, timestamps),
-                custom_ops={QKVAttention: QKVAttention.count_flops},
-            )
-
-        """
+        """ 给像 thop 这样的 FLOPs 计算工具用的。计算做了多少次乘加运算, 衡量模型的复杂度 """
         b, c, *spatial = y[0].shape
         num_spatial = int(np.prod(spatial))
-        # We perform two matmuls with the same number of ops.
-        # The first computes the weight matrix, the second computes
-        # the combination of the value vectors.
+        # 我们用相同数量的运算执行两个矩阵。第一个计算权重矩阵，第二个计算值向量的组合。
         matmul_ops = 2 * b * (num_spatial ** 2) * c
         model.total_ops += th.DoubleTensor([matmul_ops])
 
@@ -223,13 +205,8 @@ class UNetModel(nn.Module):
     """The full UNet model with attention and timestep embedding."""
 
     def __init__(
-        self,
-        in_channels,
-        model_channels,
-        out_channels,
-        num_res_blocks,
-        attention_resolutions,
-        dropout=0,
+        self, in_channels, model_channels, out_channels,
+        num_res_blocks, attention_resolutions, dropout=0,
         channel_mult=(1, 2, 4, 8),
         conv_resample=True,
         dims=2,
@@ -268,11 +245,7 @@ class UNetModel(nn.Module):
             self.label_emb = nn.Embedding(num_classes, time_embed_dim)
 
         self.input_blocks = nn.ModuleList(
-            [
-                TimestepEmbedSequential(
-                    conv_nd(dims, in_channels, model_channels, 3, padding=1)
-                )
-            ]
+            [ TimeEmbedSeq(conv_nd(dims, in_channels, model_channels, 3, padding=1)) ]
         )
         input_block_chans = [model_channels]
         ch = model_channels
@@ -281,9 +254,7 @@ class UNetModel(nn.Module):
             for _ in range(num_res_blocks):
                 layers = [
                     ResBlock(
-                        ch,
-                        time_embed_dim,
-                        dropout,
+                        ch, time_embed_dim, dropout,
                         out_channels=mult * model_channels,
                         dims=dims,
                         use_checkpoint=use_checkpoint,
@@ -297,16 +268,16 @@ class UNetModel(nn.Module):
                             ch, use_checkpoint=use_checkpoint, num_heads=num_heads
                         )
                     )
-                self.input_blocks.append(TimestepEmbedSequential(*layers))
+                self.input_blocks.append(TimeEmbedSeq(*layers))
                 input_block_chans.append(ch)
             if level != len(channel_mult) - 1:
                 self.input_blocks.append(
-                    TimestepEmbedSequential(Downsample(ch, conv_resample, dims=dims))
+                    TimeEmbedSeq(Downsample(ch, conv_resample, dims=dims))
                 )
                 input_block_chans.append(ch)
                 ds *= 2
 
-        self.middle_block = TimestepEmbedSequential(
+        self.middle_block = TimeEmbedSeq(
             ResBlock(
                 ch,
                 time_embed_dim,
@@ -352,7 +323,7 @@ class UNetModel(nn.Module):
                 if level and i == num_res_blocks:
                     layers.append(Upsample(ch, conv_resample, dims=dims))
                     ds //= 2
-                self.output_blocks.append(TimestepEmbedSequential(*layers))
+                self.output_blocks.append(TimeEmbedSeq(*layers))
 
         self.out = nn.Sequential(
             normalization(ch),
@@ -392,9 +363,8 @@ class UNetModel(nn.Module):
         :param y: an [N] Tensor of labels, if class-conditional.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        assert (y is not None) == (
-            self.num_classes is not None
-        ), "must specify y if and only if the model is class-conditional"
+        # 当且仅当模型是类条件模型时，必须指定 y
+        assert (y is not None) == (self.num_classes is not None)
 
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))

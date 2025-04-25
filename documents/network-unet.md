@@ -146,3 +146,138 @@ for p in module.parameters():
 TimestepBlock 是继承了 nn.Module 的一个抽象基类，原本的 forward 方法只有一个 x 作为参数，但是抽象基类 TimestepBlock 将其转变为了 x 和 emb 两个参数，方便了 残差块 forward 函数的使用。
 
 ## 4. 注意力机制 AttentionBlock
+
+QKV 自注意力是 transformer 中的核心模块，具体的原理我找好了两个帖子，觉得写的还蛮容易理解的：
+
+[1. transformer 中的 QKV 注意力机制 - 详细解读](https://zhuanlan.zhihu.com/p/414084879)
+[2. transformer 中的 QKV 注意力机制 - 通俗理解](https://blog.csdn.net/Weary_PJ/article/details/123531732)
+
+我在这里只做代码流程的说明，网络架构和残差块很类似，一个组归一化、一个三倍通道的卷积（对通道数做线性变换）、QKVAttention 的对象调用、输出层 proj_out 同样加了一个清零模型参数的外壳。
+
+### 4.1 forward 函数
+
+代码中的注释已经简明扼要的将用途说明了，这里只是做一些补充，比如：
+
+```py
+x = x.reshape(b, c, -1)  # == x.reshape(b, c, hw)
+```
+
+自注意力的本质是对序列中的每一个元素进行交互建模，要把空间拉直成“序列”。也就是把图像的空间展成一维序列，方便送进注意力。
+
+```py
+self.qkv = conv_nd(1, channels, channels * 3, 1)
+
+qkv = self.qkv(self.norm(x))
+qkv = qkv.reshape(b * self.num_heads, -1, qkv.shape[2])
+```
+
+第一句话可真的是老朋友了，先对通道做归一化，一般用 LayerNorm 或者 GroupNorm，然后调用 self.qkv。这个卷积很有意思，它的卷积核为 1，等效于对 C 通道做线性变换，把 [b, c, hw] 映射为 [b, 3c, hw]，即三个分支 Q、K、V 的拼接。
+
+多注意力头本质上相当于多加了几个分组的 batch size，会 reshape 成：[b * num_heads, head_dim * 3, hw]。这个 -1 我反正一开始是懵了，所以说明一下：
+
+1. qkv.shape[2] 很明显就是 hw，假设它为 32+32=64.
+2. b \* self.num_heads 假设 batch size 为 2，num_heads 为 4，这里就是 8.
+3. 假设原始的通道数为 128，3 倍的 128 就是 384.
+
+原始的总元素数量为：2 \* 384 \* 64 = 49152
+
+新的 batch size 为 8，空间维度 hw 没有变，还是 64，那么通道数就变成了 49152 / （8\*64）= 96。
+
+这里的 head_dim \* 3 只是一个称呼，和 QKVAttention 返回的 head_dim 是一个道理，就是说在有多个注意力头的情况下，单个的 QKV 分别占有多少通道。
+
+之后的正儿八经的 qkv 的拆分和计算都是在 QKVAttention 中完成的，返回的 shape 应该是 [b * num_heads, head_dim, hw]，所以后面要接一个 reshape，把多个 head 的输出拼接回原通道维度（num_heads \* head_dim = c）。
+
+最后的 proj_out 是另一个 1x1 卷积（或线性层），将每个位置的特征再调整一下。然后加上原始输入 x（残差连接），reshape 回 [b, c, h, w]，恢复图像结构。
+
+### 4.2 QKVAttention 的 forward
+
+这是标准的 QKV 自注意力机制的数学公式，看完应该比较容易理解 forward 中的代码：
+
+<img src="../public/docsImg/qkv_attention.jpeg" width="360">
+
+需要讲的重点有两个，一个是双开方，一个是 th.einsum 爱因斯坦求和约定。先对 einsum 的字母含义做一个说明：
+
+| 字母 | 含义                                             |
+| ---- | ------------------------------------------------ |
+| b    | batch (其实这里是 batch 乘 num_heads)            |
+| c    | 通道维度/每个 head 的维度                        |
+| t    | query 的 token 序列位置，通常是空间位置，等于 hw |
+| s    | key 的 token 序列位置，也是空间位置，等于 hw     |
+
+==t 和 s 都是 token 的位置，只不过 t 是 query 的 index，s 是 key 的 index！==
+
+第一个爱因斯坦求和约定计算："bct,bcs->bts"，可以这么理解：
+
+```py
+Q: [B, C, T]
+K: [B, C, S] ← 这里 T = S = hw，但逻辑上一个是 query，一个是 key
+
+# 注意力分数计算
+weight[b, t, s] = sum over c (Q[b, c, t] * K[b, c, s])
+```
+
+👉 最终得到 [B, T, S]，即 每个 query token 对所有 key 的相关性矩阵。
+
+第二个爱因斯坦求和约定计算："bts,bcs->bct", weight, v：
+
+```py
+# bts 是注意力权重 [B, T, S]
+# v 是 value [B, C, S]
+# 输出的结果为：
+out[b, c, t] = sum over s (weight[b, t, s] * v[b, c, s])
+```
+
+也就是每个 query token 根据注意力权重对所有 value 进行加权求和，得到输出向量。
+
+双开方其实是一个计算的小巧思，我们要计算 Q\*K / sqrt(ch)，而在 weight 的第一次计算中，使用的是 q _ scale 和 k _ scale 两个参数，这两个相乘之后，scale 相当于平方了一次，等于把双开方的一次开方抵消掉了。
+
+巧妙的把除以 sqrt(ch) 换成了双开方的计算，在 q 和 k 的乘法计算前，提前分配给了 q 和 k，防止了内积变大造成 softmax 梯度消失的问题，提高了数值的稳定性。
+
+### 4.3 QKVAttention 的 count_flops
+
+这一段代码是给像 thop 这样的 FLOPs 计算工具用的。FLOPs 代表模型中需要做多少“乘加运算”，通常用来衡量模型的计算复杂度。原本的代码注释中也写了该怎么用（因为我的解释挪到这里了，所以就删除了）：
+
+```py
+macs, params = thop.profile(
+    model,
+    inputs=(inputs, timestamps),
+    custom_ops={QKVAttention: QKVAttention.count_flops},
+)
+```
+
+意思是：用 thop 来分析整个模型时，遇到 QKVAttention 这个模块，就调用它自定义的 count_flops() 方法来算。
+
+## 5. U 型网络 UNetModel
+
+### 5.1 标签条件扩散
+
+首先第一个出现的新东西是，带分类的时间步嵌入：
+
+```py
+# init 构造函数中
+if self.num_classes is not None:
+    self.label_emb = nn.Embedding(num_classes, time_embed_dim)
+
+# forward 实际执行函数中
+if self.num_classes is not None:
+    assert y.shape == (x.shape[0],)
+    # 标签类别 + 时间步信息，形成条件向量
+    emb = emb + self.label_emb(y)
+```
+
+nn.Embedding 方法的作用是，把类别标签（整数）映射成一个向量，向量的维度是 time_embed_dim，然后这个向量会被加到时间步嵌入上，一起送进模型，让 U-Net 学会“我现在要生成第 X 类的图片”。
+
+🎯 为什么加到时间嵌入而不是图像上？因为 U-Net 的输入通常是纯噪声，还不知道是什么图像。而时间步嵌入是整个 U-Net 的调控器，把类别信息也加在它上面，效果稳定且容易实现。
+
+### 5.2 识别时间步嵌入的容器
+
+就是 unet 中第二个类，原本叫 TimestepEmbedSequential，这个名字真的是一股 java 味儿，不算差，但是我觉得太长了，我换成 TimeEmbedSeq 了。
+
+它是干嘛用的呢？我们在 Resblock 残差块类中，用过 nn.Sequential 这个方法，就是在其中顺序添加各种模块，方便执行。而 TimeEmbedSeq 就是这个方法的加强版，它在顺序执行子模块时，会“识别”哪个子模块支持接收 timestep embedding（时间步嵌入 emb），然后：
+
+1. 如果子模块是 TimestepBlock：layer(x, emb)，把时间步也传进去
+2. 如果子模块不是 TimestepBlock：就普通前向 layer(x)
+
+举个例子，input_blocks 中的第一个卷积层，它是纯粹的卷积模块，所以直接走 2；之后传入的模块，还有 ResBlock，以及 DownSample，前者继承的是 TimestepBlock 会走 1，后者没有时间步，会走 2.
+
+🧠 为啥这么做而不是直接在 forward 里传不同参数？因为在训练中，我们会频繁堆叠很多 Block（有的要 emb，有的不要），写 if else 会很乱。所以作者用继承 + isinstance 判断的方式来自动分发，非常 Pythonic。
