@@ -281,3 +281,68 @@ nn.Embedding 方法的作用是，把类别标签（整数）映射成一个向�
 举个例子，input_blocks 中的第一个卷积层，它是纯粹的卷积模块，所以直接走 2；之后传入的模块，还有 ResBlock，以及 DownSample，前者继承的是 TimestepBlock 会走 1，后者没有时间步，会走 2.
 
 🧠 为啥这么做而不是直接在 forward 里传不同参数？因为在训练中，我们会频繁堆叠很多 Block（有的要 emb，有的不要），写 if else 会很乱。所以作者用继承 + isinstance 判断的方式来自动分发，非常 Pythonic。
+
+### 5.3 时间块的使用
+
+有关残差网络和 U-Net 的结构，之前在 DDPM 中讲过，这里就不写了。我们可以看到，AttentionBlock 的使用是靠 attention_resolutions 参数和 ds 两个参数控制的。
+
+这里的 ds 很有意思，在控制下采样的判断条件里，每一次下采样 ds 都会乘 2，我们知道 idm 设置的下采样通道倍率为 (1, 2, 4, 8)，而最后一次 8 它就不再下采样了，所以 ds 也是走 3 次，从 1 到 2、4、8。
+
+也就是说，在这个条件判断语句中，它默认给的 attention_resolutions="16,8" 这个参数，只有 8 会生效：
+
+```py
+if ds in attention_resolutions:
+    layers.append(
+        AttentionBlock(
+            ch, use_checkpoint=use_checkpoint, num_heads=num_heads
+        )
+    )
+```
+
+### 5.4 forward 手动控制精度
+
+```py
+h = x.type(self.inner_dtype)
+...
+h = h.type(x.dtype)
+```
+
+默认情况下 pytorch 都是 float32 训练的，但是如果使用了混合精度训练（fp16， bf16）去优化部署，就得保证某些 数值不稳定的操作（比如 attention 权重的 softmax）始终用 float32 来算，不被自动降成 float16。
+
+避免在 mixed-precision 训练下出现 梯度爆炸 / 收敛失败。比如，th.softmax(weight.float()) 中的计算就是先转换成 float32，再 type(weight.dtype) 转回去：
+
+```py
+weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
+```
+
+### 5.5 get_feature_vectors
+
+它和 forward 函数长得很像，但它返回的是 result，是从 U-Net 中提取中间层的“特征向量”，而不是像 forward() 一样输出最终的噪声预测图（output image）。这么做通常是为了：
+
+1. 作为一种 encoder，用于对输入图像做“语义嵌入”
+2. 训练特征对齐、对比损失（contrastive loss）
+3. 为 latent 模型做编码条件（condition）
+
+它是设计者给研究人员留下的 hook 接口，目前在主流程中没有被用到，但它可以在你需要的时候调用，特别是在训练其他辅助任务或上层模块的时候。
+
+## 6. 超分 SuperResModel
+
+与 U-Net 网络一样，get_feature_vectors 只是备用接口，实现超分的还是 forward 函数。我们看看这三行共通的代码有什么用：
+
+```py
+# x 是高分辨率目标图像（可能是加噪后的），shape 还是 [B, C, H, W]
+# 这行只是取出目标图像的尺寸，用于后面的对齐操作。
+_, _, new_height, new_width = x.shape
+
+# low_res 是对应的低分辨率图像（作为条件输入），比如下采样过的图。
+# 这行代码将低分辨率图上采样回高分辨率，使其尺寸与 x 对齐。只是插值放大，并没有加入复杂的推理。
+upsampled = F.interpolate(low_res, (new_height, new_width), mode="bilinear")
+
+# 将目标图（x）和插值放大的低分辨率图在通道维度拼接。相当于：
+# 我把图像本身和它的模糊版本一起输入 U-Net，让网络学会利用这个模糊图来更好地还原清晰图
+x = th.cat([x, upsampled], dim=1)
+```
+
+最后再调用父类的 forward 函数进行训练。本质上它是一个映射模型：[x (有噪声的高分图) , 插值放大的 low_res 条件图] ——> 清晰的高分图像。
+
+它不是靠这三行“实现”超分，而是靠整个 UNet 学习如何在有 low_res 条件输入的前提下生成更好的结果；这三行只是负责构造输入结构，告诉 UNet：“嘿，我现在想让你参考这个低分图，它是你可以依赖的上下文信息。”

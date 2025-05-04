@@ -1,0 +1,38 @@
+model:
+  image_size: 64
+  num_channels: 128
+  num_res_blocks: 2
+  num_heads: 4
+  num_heads_upsample: -1
+  attention_resolutions: "16,8"
+  learn_sigma: False
+  class_cond: False
+  use_checkpoint: False
+  use_scale_shift_norm: True
+  dropout: 0.1
+
+diffusion:
+  steps: 1000
+  learn_sigma: true
+  sigma_small: False
+  noise_schedule: "linear"
+  use_kl: False
+  predict_xstart: False
+  rescale_timesteps: True # 只能在 linear noise 时为 true
+  rescale_learned_sigmas: True
+  timestep_respacing: ""
+
+training:
+  data_dir: ""
+  schedule_sampler: "uniform"
+  lr: 1e-4
+  weight_decay: 0.0
+  lr_anneal_steps: 0
+  batch_size: 32
+  microbatch: -1
+  ema_rate: "0.9999"
+  log_interval: 10
+  save_interval: 10000
+  resume_checkpoint: ""
+  use_fp16: False
+  fp16_scale_growth: 1e-3

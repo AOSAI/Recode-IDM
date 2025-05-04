@@ -1,0 +1,30 @@
+model:
+  large_size: 256
+  small_size: 64
+  num_channels: 128
+  num_res_blocks: 2
+  num_heads: 4
+  num_heads_upsample: -1
+  learn_sigma: False
+  class_cond: False
+  use_checkpoint: False
+  attention_resolutions: "16,8"
+  use_scale_shift_norm: True
+  dropout: 0.1
+
+diffusion:
+  steps: 1000
+  learn_sigma: true
+  noise_schedule: "linear"
+  use_kl: False
+  predict_xstart: False
+  rescale_timesteps: True
+  rescale_learned_sigmas: True
+  timestep_respacing: ""
+
+sampling:
+  clip_denoised: True
+  num_samples: 10000
+  batch_size: 16
+  use_ddim: False
+  model_path: ""

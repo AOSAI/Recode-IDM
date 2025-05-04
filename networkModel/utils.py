@@ -86,6 +86,27 @@ class CheckpointFunction(th.autograd.Function):
         del ctx.input_params
         del output_tensors
         return (None, None) + input_grads
+    
+
+# --------------- 时间步的正余弦高频编码 ---------------
+def timestep_embedding(timesteps, dim, max_period=10000):
+    """
+    Create sinusoidal timestep embeddings.
+
+    :param timesteps: LongTensor, 形状为 [batch_size], 表示每张图像的时间步t
+    :param dim: int, 时间嵌入的维度 (通常等于 base_channels * 4)
+    :param max_period: 控制嵌入的最小频率
+    :return: Tensor: [batch_size, dim] 的时间嵌入向量
+    """
+    half = dim // 2
+    freqs = th.exp(
+        -math.log(max_period) * th.arange(start=0, end=half, dtype=th.float32) / half
+    ).to(device=timesteps.device)
+    args = timesteps[:, None].float() * freqs[None]
+    embedding = th.cat([th.cos(args), th.sin(args)], dim=-1)
+    if dim % 2:
+        embedding = th.cat([embedding, th.zeros_like(embedding[:, :1])], dim=-1)
+    return embedding
 
 def update_ema(target_params, source_params, rate=0.99):
     """
@@ -109,28 +130,3 @@ def scale_module(module, scale):
     return module
 
 
-def mean_flat(tensor):
-    """
-    Take the mean over all non-batch dimensions.
-    """
-    return tensor.mean(dim=list(range(1, len(tensor.shape))))
-
-
-def timestep_embedding(timesteps, dim, max_period=10000):
-    """
-    Create sinusoidal timestep embeddings.
-
-    :param timesteps: LongTensor, 形状为 [batch_size], 表示每张图像的时间步t
-    :param dim: int, 时间嵌入的维度 (通常等于 base_channels * 4)
-    :param max_period: 控制嵌入的最小频率
-    :return: Tensor: [batch_size, dim] 的时间嵌入向量
-    """
-    half = dim // 2
-    freqs = th.exp(
-        -math.log(max_period) * th.arange(start=0, end=half, dtype=th.float32) / half
-    ).to(device=timesteps.device)
-    args = timesteps[:, None].float() * freqs[None]
-    embedding = th.cat([th.cos(args), th.sin(args)], dim=-1)
-    if dim % 2:
-        embedding = th.cat([embedding, th.zeros_like(embedding[:, :1])], dim=-1)
-    return embedding

@@ -9,8 +9,8 @@ from .fp16_util import convert_module_to_f16, convert_module_to_f32
 from .utils import (
     conv_transpose_nd, conv_nd, linear, avg_pool_nd,
     zero_module, normalization,
-    timestep_embedding,
-    CheckpointFunction,
+    CheckpointFunction, timestep_embedding,
+    
 )
 
 
@@ -279,18 +279,14 @@ class UNetModel(nn.Module):
 
         self.middle_block = TimeEmbedSeq(
             ResBlock(
-                ch,
-                time_embed_dim,
-                dropout,
+                ch, time_embed_dim, dropout,
                 dims=dims,
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
             ),
             AttentionBlock(ch, use_checkpoint=use_checkpoint, num_heads=num_heads),
             ResBlock(
-                ch,
-                time_embed_dim,
-                dropout,
+                ch, time_embed_dim, dropout,
                 dims=dims,
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
@@ -303,8 +299,7 @@ class UNetModel(nn.Module):
                 layers = [
                     ResBlock(
                         ch + input_block_chans.pop(),
-                        time_embed_dim,
-                        dropout,
+                        time_embed_dim, dropout,
                         out_channels=model_channels * mult,
                         dims=dims,
                         use_checkpoint=use_checkpoint,
@@ -315,9 +310,7 @@ class UNetModel(nn.Module):
                 if ds in attention_resolutions:
                     layers.append(
                         AttentionBlock(
-                            ch,
-                            use_checkpoint=use_checkpoint,
-                            num_heads=num_heads_upsample,
+                            ch, use_checkpoint=use_checkpoint, num_heads=num_heads_upsample,
                         )
                     )
                 if level and i == num_res_blocks:
@@ -332,37 +325,23 @@ class UNetModel(nn.Module):
         )
 
     def convert_to_fp16(self):
-        """
-        Convert the torso of the model to float16.
-        """
+        """ Convert the torso of the model to float16. """
         self.input_blocks.apply(convert_module_to_f16)
         self.middle_block.apply(convert_module_to_f16)
         self.output_blocks.apply(convert_module_to_f16)
 
     def convert_to_fp32(self):
-        """
-        Convert the torso of the model to float32.
-        """
+        """ Convert the torso of the model to float32. """
         self.input_blocks.apply(convert_module_to_f32)
         self.middle_block.apply(convert_module_to_f32)
         self.output_blocks.apply(convert_module_to_f32)
 
     @property
     def inner_dtype(self):
-        """
-        Get the dtype used by the torso of the model.
-        """
+        """ Get the dtype used by the torso of the model. """
         return next(self.input_blocks.parameters()).dtype
 
     def forward(self, x, timesteps, y=None):
-        """
-        Apply the model to an input batch.
-
-        :param x: an [N x C x ...] Tensor of inputs.
-        :param timesteps: a 1-D batch of timesteps.
-        :param y: an [N] Tensor of labels, if class-conditional.
-        :return: an [N x C x ...] Tensor of outputs.
-        """
         # 当且仅当模型是类条件模型时，必须指定 y
         assert (y is not None) == (self.num_classes is not None)
 
@@ -385,24 +364,15 @@ class UNetModel(nn.Module):
         return self.out(h)
 
     def get_feature_vectors(self, x, timesteps, y=None):
-        """
-        Apply the model and return all of the intermediate tensors.
-
-        :param x: an [N x C x ...] Tensor of inputs.
-        :param timesteps: a 1-D batch of timesteps.
-        :param y: an [N] Tensor of labels, if class-conditional.
-        :return: a dict with the following keys:
-                 - 'down': a list of hidden state tensors from downsampling.
-                 - 'middle': the tensor of the output of the lowest-resolution
-                             block in the model.
-                 - 'up': a list of hidden state tensors from upsampling.
-        """
+        """ 从 U-Net 中提取中间层的“特征向量” , 扩展接口, 并无使用"""
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+        
         if self.num_classes is not None:
             assert y.shape == (x.shape[0],)
             emb = emb + self.label_emb(y)
         result = dict(down=[], up=[])
+        
         h = x.type(self.inner_dtype)
         for module in self.input_blocks:
             h = module(h, emb)
@@ -419,9 +389,8 @@ class UNetModel(nn.Module):
 
 class SuperResModel(UNetModel):
     """
-    A UNetModel that performs super-resolution.
-
-    Expects an extra kwarg `low_res` to condition on a low-resolution image.
+    执行超分辨率的 UNetModel。
+    希望有一个额外的 kwarg `low_res` 来作为低分辨率图像的条件。
     """
 
     def __init__(self, in_channels, *args, **kwargs):
