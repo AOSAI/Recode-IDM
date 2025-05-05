@@ -156,11 +156,6 @@ def add_dict_to_argparser(parser, default_dict):
             v_type = str2bool
         parser.add_argument(f"--{k}", default=v, type=v_type)
 
-
-def args_to_dict(args, keys):
-    return {k: getattr(args, k) for k in keys}
-
-
 def str2bool(v):
     """
     https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse

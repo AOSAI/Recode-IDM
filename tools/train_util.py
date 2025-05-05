@@ -8,16 +8,11 @@ import torch as th
 import torch.distributed as dist
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim import AdamW
+import torch.nn as nn
+from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-from . import dist_util, logger
-from .fp16_util import (
-    make_master_params,
-    master_params_to_model_params,
-    model_grads_to_master_grads,
-    unflatten_master_params,
-    zero_grad,
-)
-from .nn import update_ema
+from tools import logger
+from networkModel.utils import update_ema
 from ..diffusionModel.resample import LossAwareSampler, UniformSampler
 
 # For ImageNet experiments, this was a good default value.
@@ -354,3 +349,56 @@ def log_loss_dict(diffusion, ts, losses):
         for sub_t, sub_loss in zip(ts.cpu().numpy(), values.detach().cpu().numpy()):
             quartile = int(4 * sub_t / diffusion.num_timesteps)
             logger.logkv_mean(f"{key}_q{quartile}", sub_loss)
+
+
+# ------------ Helpers to train with 16-bit precision. ------------
+def make_master_params(model_params):
+    """
+    Copy model parameters into a (differently-shaped) list of full-precision
+    parameters.
+    """
+    master_params = _flatten_dense_tensors(
+        [param.detach().float() for param in model_params]
+    )
+    master_params = nn.Parameter(master_params)
+    master_params.requires_grad = True
+    return [master_params]
+
+
+def model_grads_to_master_grads(model_params, master_params):
+    """
+    Copy the gradients from the model parameters into the master parameters
+    from make_master_params().
+    """
+    master_params[0].grad = _flatten_dense_tensors(
+        [param.grad.data.detach().float() for param in model_params]
+    )
+
+
+def master_params_to_model_params(model_params, master_params):
+    """
+    Copy the master parameter data back into the model parameters.
+    """
+    # Without copying to a list, if a generator is passed, this will
+    # silently not copy any parameters.
+    model_params = list(model_params)
+
+    for param, master_param in zip(
+        model_params, unflatten_master_params(model_params, master_params)
+    ):
+        param.detach().copy_(master_param)
+
+
+def unflatten_master_params(model_params, master_params):
+    """
+    Unflatten the master parameters to look like model_params.
+    """
+    return _unflatten_dense_tensors(master_params[0].detach(), tuple(tensor for tensor in model_params))
+
+
+def zero_grad(model_params):
+    for param in model_params:
+        # Taken from https://pytorch.org/docs/stable/_modules/torch/optim/optimizer.html#Optimizer.add_param_group
+        if param.grad is not None:
+            param.grad.detach_()
+            param.grad.zero_()

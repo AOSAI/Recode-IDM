@@ -108,6 +108,23 @@ def timestep_embedding(timesteps, dim, max_period=10000):
         embedding = th.cat([embedding, th.zeros_like(embedding[:, :1])], dim=-1)
     return embedding
 
+
+# --------------- 精度转换，原本写在 fp16_util 文件中 ---------------
+def convert_module_to_f16(l):
+    """ Convert primitive modules to float16. """
+    if isinstance(l, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
+        l.weight.data = l.weight.data.half()
+        l.bias.data = l.bias.data.half()
+
+
+def convert_module_to_f32(l):
+    """ Convert primitive modules to float32. """
+    if isinstance(l, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
+        l.weight.data = l.weight.data.float()
+        l.bias.data = l.bias.data.float()
+
+
+# --------------- 时间步的正余弦高频编码 ---------------
 def update_ema(target_params, source_params, rate=0.99):
     """
     Update target parameters to be closer to those of source parameters using

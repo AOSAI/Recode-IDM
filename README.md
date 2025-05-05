@@ -24,23 +24,19 @@ Recode-IDM/
 ├── networkModel/             # 网络模型架构(神经网络)
 │   ├── unet.py                 # U-Net + Resblock + Attention
 │   ├── utils.py                # U-Net 相关的函数调用
-│   ├── fp16_util.py            # 暂未优化
-├── common/                   # 通用模块
-│   ├── fp16_util.py            # 训练日志 setup
-│   └── script_util.py          # ...
+│   └── fp16_util.py            # 暂未优化
 ├── tools/                    # 项目级工具
 │   ├── logger.py               # 训练日志 setup
 │   └── script_util.py          # ...
 ├── scripts/                  # 训练采样脚本入口
 │   ├── image_train.py          # 训练模型
 │   └── image_sample.py         # 采样生成
-├── documents/                # 每个文件的讲解笔记《小白指南》
-│   └── *.md
 ├── public/                   # 公共资源
 │   ├── configs/                # 参数配置文件
 │   └── docsImg/                # markdown所需图像
+│   └── documents/*.md          # 每个文件的讲解笔记《小白指南》
+│   └── jupyter/                # jupyter notebook
 ├── main.py                   # 运行入口
-├── jupyter/                  # Jupyter Notebook
 ```
 
 ## 参考文献

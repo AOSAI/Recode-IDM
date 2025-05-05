@@ -1,16 +1,10 @@
-"""
-Train a diffusion model on images.
-"""
+""" Train a diffusion model on images. """
 import torch as th
 from tools import logger
 from tools.image_datasets import load_data
 from diffusionModel.resample import create_named_schedule_sampler
-from tools.script_util import (
-    create_model_and_diffusion,
-    args_to_dict,
-    load_config,
-)
-from common.train_util import TrainLoop
+from tools.script_util import create_model_and_diffusion, load_config
+from tools.train_util import TrainLoop
 
 
 def main():
@@ -28,6 +22,7 @@ def main():
     model.to(device)
     schedule_sampler = create_named_schedule_sampler(args_t.schedule_sampler, diffusion)
 
+    # ------------ 数据集图像的预处理 ------------
     logger.log("creating data loader...")
     data = load_data(
         data_dir=args_t.data_dir,
@@ -36,23 +31,24 @@ def main():
         class_cond=args_m.class_cond,
     )
 
+    # ------------ 开始走训练流程 ------------
     logger.log("training...")
     TrainLoop(
         model=model,
         diffusion=diffusion,
         data=data,
-        batch_size=args.batch_size,
-        microbatch=args.microbatch,
-        lr=args.lr,
-        ema_rate=args.ema_rate,
-        log_interval=args.log_interval,
-        save_interval=args.save_interval,
-        resume_checkpoint=args.resume_checkpoint,
-        use_fp16=args.use_fp16,
-        fp16_scale_growth=args.fp16_scale_growth,
+        batch_size=args_t.batch_size,
+        microbatch=args_t.microbatch,
+        lr=args_t.lr,
+        ema_rate=args_t.ema_rate,
+        log_interval=args_t.log_interval,
+        save_interval=args_t.save_interval,
+        resume_checkpoint=args_t.resume_checkpoint,
+        use_fp16=args_t.use_fp16,
+        fp16_scale_growth=args_t.fp16_scale_growth,
         schedule_sampler=schedule_sampler,
-        weight_decay=args.weight_decay,
-        lr_anneal_steps=args.lr_anneal_steps,
+        weight_decay=args_t.weight_decay,
+        lr_anneal_steps=args_t.lr_anneal_steps,
     ).run_loop()
 
 

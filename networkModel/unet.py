@@ -5,12 +5,11 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .fp16_util import convert_module_to_f16, convert_module_to_f32
 from .utils import (
     conv_transpose_nd, conv_nd, linear, avg_pool_nd,
     zero_module, normalization,
     CheckpointFunction, timestep_embedding,
-    
+    convert_module_to_f16, convert_module_to_f32,
 )
 
 
