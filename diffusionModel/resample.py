@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import torch as th
-import torch.distributed as dist
 
 
 def create_named_schedule_sampler(name, diffusion):

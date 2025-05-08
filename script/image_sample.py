@@ -107,7 +107,6 @@ def save_nparray(args_s, args_m, all_images, all_labels):
         else:
             np.savez(out_path, arr)
 
-    dist.barrier()  # 等待所有进程保存完毕，避免进程抢跑
     logger.log("sampling complete")
 
 

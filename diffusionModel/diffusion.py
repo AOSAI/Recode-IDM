@@ -1,25 +1,26 @@
 import torch
-import torch.nn as nn
 import numpy as np
-from .noise_schedule import get_noise_schedule
-from .utils import (ModelMeanType, ModelVarType, LossType, extract, mean_flat,
-                    normal_kl, discretized_gaussian_log_likelihood)
+from .noise_schedule import noise_related_calculate
+from .utils import (ModelMeanType, ModelVarType, LossType, 
+                    extract, mean_flat, normal_kl, 
+                    discretized_gaussian_log_likelihood)
 
 
 # -------------- 基类 --------------
 class GaussianDiffusion:
-    def __init__(self, model, model_mean_type, model_var_type, loss_type, 
-                 timesteps=1000, device="cuda"):
+    def __init__(self, *, betas, model_mean_type, model_var_type, 
+                 loss_type, rescale_timesteps=False):
         # 将传入的参数注册为 self 全局变量
-        self.model = model
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
         self.loss_type = loss_type
-        self.timesteps = timesteps
-        self.device = device
+        self.rescale_timesteps = rescale_timesteps
+
+        self.betas = np.asarray(betas)
+        self.num_timesteps = int(betas.shape[0])
 
         # 获取所有噪声调度参数，并注册为 self.xxx
-        noise_schedule = get_noise_schedule(timesteps)
+        noise_schedule = noise_related_calculate(betas)
         for k, v in noise_schedule.items():
             setattr(self, k, v)
 
@@ -75,7 +76,9 @@ class GaussianDiffusion:
             extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - pred_xstart
         ) / extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
     
-    def p_mean_variance(self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None):
+    def p_mean_variance(
+        self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None
+    ):
         """返回模型预测的噪声均值、方差（固定、可学习）"""
         if model_kwargs is None:
             model_kwargs = {}

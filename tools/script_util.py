@@ -1,8 +1,9 @@
 import argparse
 import yaml
-from diffusionModel.diffusion import GaussianDiffusion as gd
-from common.respace import SpacedDiffusion, space_timesteps
+from diffusionModel.respace import SpacedDiffusion, space_timesteps
 from networkModel.unet import SuperResModel, UNetModel
+from diffusionModel.noise_schedule import get_noise_schedule
+from diffusionModel.utils import ModelMeanType, ModelVarType, LossType
 
 NUM_CLASSES = 1000
 
@@ -11,28 +12,38 @@ def create_model_and_diffusion(model_kwargs, diffusion_kwargs):
     diffusion = create_gaussian_diffusion(**diffusion_kwargs)
     return model, diffusion
 
-def create_model(
-    image_size,
-    num_channels,
-    num_res_blocks,
-    learn_sigma,
-    class_cond,
-    use_checkpoint,
-    attention_resolutions,
-    num_heads,
-    num_heads_upsample,
-    use_scale_shift_norm,
-    dropout,
-):
-    if image_size == 256:
-        channel_mult = (1, 1, 2, 2, 4, 4)
-    elif image_size == 64:
-        channel_mult = (1, 2, 3, 4)
-    elif image_size == 32:
-        channel_mult = (1, 2, 2, 2)
-    else:
-        raise ValueError(f"unsupported image size: {image_size}")
+def sr_create_model_and_diffusion(model_kwargs, diffusion_kwargs):
+    model = sr_create_model(**model_kwargs)
+    diffusion = create_gaussian_diffusion(**diffusion_kwargs)
+    return model, diffusion
 
+# 通过图像尺寸得到 channel_mult 的最优解（base_channel为128）
+def get_channel_mult(image_size: int):
+    presets = {
+        512: (0.5, 1, 1, 2, 2, 4, 4),
+        256: (1, 1, 2, 2, 4, 4),
+        128: (1, 1, 2, 3, 4),
+        64: (1, 2, 3, 4),
+        32: (1, 2, 2),
+    }
+    if image_size not in presets:
+        raise ValueError(f"Unsupported image size: {image_size}")
+    return presets[image_size]
+
+
+def create_model(
+    image_size, num_channels, num_res_blocks,
+    learn_sigma, class_cond, use_checkpoint,
+    attention_resolutions, num_heads, num_heads_upsample,
+    use_scale_shift_norm, dropout,
+):  
+    # channel_mult 元组的（长度 - 1），决定下采样的次数；
+    # 元组中的数值，决定通道数 base_channel 的变化情况
+    channel_mult = get_channel_mult(image_size)
+
+    # attention_resolutions 表示，你想在哪个图像尺寸中加入注意力机制，
+    # 根据 channel_mult 的设定，每一种图像的尺寸最后都能缩放到 8 像素；
+    # image_size // int(res) 表示尺寸的缩放倍数，和 unet 中的 ds 做对应。
     attention_ds = []
     for res in attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
@@ -53,33 +64,16 @@ def create_model(
     )
 
 
-def sr_create_model_and_diffusion(model_kwargs, diffusion_kwargs):
-    model = sr_create_model(**model_kwargs)
-    diffusion = create_gaussian_diffusion(**diffusion_kwargs)
-    return model, diffusion
-
 def sr_create_model(
-    large_size,
-    small_size,
-    num_channels,
-    num_res_blocks,
-    learn_sigma,
-    class_cond,
-    use_checkpoint,
-    attention_resolutions,
-    num_heads,
-    num_heads_upsample,
-    use_scale_shift_norm,
-    dropout,
+    large_size, small_size,
+    num_channels, num_res_blocks, learn_sigma,
+    class_cond, use_checkpoint, attention_resolutions,
+    num_heads, num_heads_upsample,
+    use_scale_shift_norm, dropout,
 ):
-    _ = small_size  # hack to prevent unused variable
+    _ = small_size  # 假装使用了该变量，防止报错或滥用
 
-    if large_size == 256:
-        channel_mult = (1, 1, 2, 2, 4, 4)
-    elif large_size == 64:
-        channel_mult = (1, 2, 3, 4)
-    else:
-        raise ValueError(f"unsupported large size: {large_size}")
+    channel_mult = get_channel_mult(large_size)
 
     attention_ds = []
     for res in attention_resolutions.split(","):
@@ -102,41 +96,41 @@ def sr_create_model(
 
 
 def create_gaussian_diffusion(
-    *,
-    steps=1000,
-    learn_sigma=False,
-    sigma_small=False,
-    noise_schedule="linear",
-    use_kl=False,
-    predict_xstart=False,
-    rescale_timesteps=False,
-    rescale_learned_sigmas=False,
-    timestep_respacing="",
+    *, steps=1000, learn_sigma=False, sigma_small=False,
+    noise_schedule="linear", use_kl=False,
+    predict_xstart=False, rescale_timesteps=False,
+    rescale_learned_sigmas=False, timestep_respacing="",
 ):
-    betas = gd.get_named_beta_schedule(noise_schedule, steps)
-    if use_kl:
-        loss_type = gd.LossType.RESCALED_KL
-    elif rescale_learned_sigmas:
-        loss_type = gd.LossType.RESCALED_MSE
-    else:
-        loss_type = gd.LossType.MSE
+    
+    betas = get_noise_schedule(noise_schedule, steps)
     if not timestep_respacing:
         timestep_respacing = [steps]
+        
+    if use_kl:
+        loss_type = LossType.RESCALED_KL
+    elif rescale_learned_sigmas:
+        loss_type = LossType.RESCALED_MSE
+    else:
+        loss_type = LossType.MSE
+
+    if not predict_xstart:
+        mean_type = ModelMeanType.EPSILON
+    else:
+        mean_type = ModelMeanType.START_X
+
+    if not learn_sigma:
+        if not sigma_small:
+            var_type = ModelVarType.FIXED_LARGE
+        else:
+            var_type = ModelVarType.FIXED_SMALL
+    else:
+        var_type = ModelVarType.LEARNED_RANGE
+
     return SpacedDiffusion(
         use_timesteps=space_timesteps(steps, timestep_respacing),
         betas=betas,
-        model_mean_type=(
-            gd.ModelMeanType.EPSILON if not predict_xstart else gd.ModelMeanType.START_X
-        ),
-        model_var_type=(
-            (
-                gd.ModelVarType.FIXED_LARGE
-                if not sigma_small
-                else gd.ModelVarType.FIXED_SMALL
-            )
-            if not learn_sigma
-            else gd.ModelVarType.LEARNED_RANGE
-        ),
+        model_mean_type=mean_type,
+        model_var_type=var_type,
         loss_type=loss_type,
         rescale_timesteps=rescale_timesteps,
     )

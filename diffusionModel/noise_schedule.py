@@ -22,7 +22,7 @@ def cosine_beta_schedule(timesteps, max_beta=0.999):
     return np.array(betas)
 
 def get_noise_schedule(schedule_name, timesteps):
-    """ 构造 beta, alpha, alpha_bar 等时间相关参数"""
+    """ 根据不同的方案构造 beta 时间表"""
     
     if schedule_name == "linear":
         betas = linear_beta_schedule(timesteps)
@@ -30,7 +30,11 @@ def get_noise_schedule(schedule_name, timesteps):
         betas = cosine_beta_schedule(timesteps)
     else:
         raise NotImplementedError(f"unknown beta schedule: {schedule_name}")
+    
+    return betas
 
+def noise_related_calculate(betas):
+    """ 根据 beta 构造 alpha, alpha_bar 等时间相关参数"""
     alphas = 1.0 - betas
     alphas_cumprod = np.cumprod(alphas, axis=0)
     alphas_cumprod_prev = np.append(1.0, alphas_cumprod[:-1])
@@ -53,7 +57,6 @@ def get_noise_schedule(schedule_name, timesteps):
     )
 
     return {
-        "betas": betas,
         "alphas": alphas,
         "alphas_cumprod": alphas_cumprod,
         "alphas_cumprod_prev": alphas_cumprod_prev,
