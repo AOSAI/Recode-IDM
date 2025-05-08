@@ -1,6 +1,5 @@
 model:
-  large_size: 256
-  small_size: 64
+  image_size: 64
   num_channels: 128
   num_res_blocks: 2
   num_heads: 4
@@ -23,17 +22,9 @@ diffusion:
   rescale_learned_sigmas: True
   timestep_respacing: ""
 
-training:
+sampling:
   data_dir: ""
-  schedule_sampler: "uniform"
-  lr: 1e-4
-  weight_decay: 0.0
-  lr_anneal_steps: 0
-  batch_size: 32
-  microbatch: -1
-  ema_rate: "0.9999"
-  log_interval: 10
-  save_interval: 10000
-  resume_checkpoint: ""
-  use_fp16: False
-  fp16_scale_growth: 1e-3
+  clip_denoised: True
+  num_samples: 1000
+  batch_size: 1
+  model_path: ""

@@ -28,3 +28,4 @@ sampling:
   batch_size: 16
   use_ddim: False
   model_path: ""
+  base_samples: ""

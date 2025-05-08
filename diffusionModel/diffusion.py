@@ -152,11 +152,7 @@ class GaussianDiffusion:
     def _vb_terms_bpd(
         self, model, x_start, x_t, t, clip_denoised=True, model_kwargs=None
     ):
-        """
-        估算变分下界 (Variational Lower Bound, VLB) 的每一步的贡献,
-        非训练用损失, 而是用来衡量 模型生成效果是否符合理论 的一个指标,
-        通常在 validation 或 debug 阶段用来算 Bits-Per-Dimension (bpd)。
-        """
+        """ 估算变分下界 (Variational Lower Bound, VLB) """
         # --------------- 获取 真实后验分布 / 模型预测分布 的均值和方差 ---------------
         true_mean, _, true_log_variance_clipped = self.q_posterior(x_start, x_t, t)
         out = self.p_mean_variance(
@@ -242,6 +238,77 @@ class GaussianDiffusion:
 
         return terms
     
+    def _prior_bpd(self, x_start):
+        """
+        获取变分下限的先验 KL 项，单位为比特/比特。该项无法优化，因为它只取决于编码器。
+
+        :param x_start: the [N x C x ...] tensor of inputs.
+        :return: a batch of [N] KL values (in bits), one per batch element.
+        """
+        batch_size = x_start.shape[0]
+        t = torch.tensor([self.num_timesteps - 1] * batch_size, device=x_start.device)
+        qt_mean, _, qt_log_variance = self.q_mean_variance(x_start, t)
+        kl_prior = normal_kl(
+            mean1=qt_mean, logvar1=qt_log_variance, mean2=0.0, logvar2=0.0
+        )
+        return mean_flat(kl_prior) / np.log(2.0)
+
+    def calc_bpd_loop(self, model, x_start, clip_denoised=True, model_kwargs=None):
+        """
+        计算整个变分下限（以每比特为单位）以及其他相关数量。
+
+        :param model: 评估损失的模型
+        :param x_start: the [N x C x ...] tensor of inputs.
+        :param clip_denoised: if True, clip denoised samples.
+        :param model_kwargs: if not None, a dict of extra keyword arguments to
+            pass to the model. This can be used for conditioning.
+
+        :return: a dict containing the following keys:
+                 - total_bpd: 每个批次元素的总变分下限。
+                 - prior_bpd: 下限中的前项。
+                 - vb: 下界项的 [N x T] 张量。
+                 - xstart_mse: 每个时间步的 x_0 MSE 的 [N x T] 张量。
+                 - mse: 每个时间步的ε MSE 的 [N x T] 张量。
+        """
+        device = x_start.device
+        batch_size = x_start.shape[0]
+
+        vb = []
+        xstart_mse = []
+        mse = []
+        for t in list(range(self.num_timesteps))[::-1]:
+            t_batch = torch.tensor([t] * batch_size, device=device)
+            noise = torch.randn_like(x_start)
+            x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
+            # Calculate VLB term at the current timestep
+            with torch.no_grad():
+                out = self._vb_terms_bpd(
+                    model,
+                    x_start=x_start,
+                    x_t=x_t,
+                    t=t_batch,
+                    clip_denoised=clip_denoised,
+                    model_kwargs=model_kwargs,
+                )
+            vb.append(out["output"])
+            xstart_mse.append(mean_flat((out["pred_xstart"] - x_start) ** 2))
+            eps = self._predict_eps_from_xstart(x_t, t_batch, out["pred_xstart"])
+            mse.append(mean_flat((eps - noise) ** 2))
+
+        vb = torch.stack(vb, dim=1)
+        xstart_mse = torch.stack(xstart_mse, dim=1)
+        mse = torch.stack(mse, dim=1)
+
+        prior_bpd = self._prior_bpd(x_start)
+        total_bpd = vb.sum(dim=1) + prior_bpd
+        return {
+            "total_bpd": total_bpd,
+            "prior_bpd": prior_bpd,
+            "vb": vb,
+            "xstart_mse": xstart_mse,
+            "mse": mse,
+        }
+    
     
 # -------------- DDPM 原始采样器 --------------
 class SamplerDDPM:
@@ -250,6 +317,7 @@ class SamplerDDPM:
 
         # 用到的属性，重新建立索引引用，不会额外占用显存
         self.p_mean_variance = diffusion.p_mean_variance
+        self.num_timesteps = diffusion.num_timesteps
 
     def p_sample(
         self, model, x_t, t, clip_denoised=True, denoised_fn=None, model_kwargs=None
@@ -275,7 +343,7 @@ class SamplerDDPM:
         else:
             x_t = torch.randn(shape, device=device)
         
-        indices = reversed(range(self.timesteps))
+        indices = reversed(range(self.num_timesteps))
         if progress:
             from tqdm.auto import tqdm
             indices = tqdm(indices)
@@ -312,6 +380,7 @@ class SamplerDDIM:
         self.alphas_cumprod = diffusion.alphas_cumprod
         self.alphas_cumprod_prev = diffusion.alphas_cumprod_prev
         self.alphas_cumprod_next = diffusion.alphas_cumprod_next
+        self.num_timesteps = diffusion.num_timesteps
 
     def ddim_reverse_sample(
         self, model, x, t, eta=0.0,
@@ -374,7 +443,7 @@ class SamplerDDIM:
         else:
             img = torch.randn(*shape, device=device)
         
-        indices = reversed(range(self.timesteps))
+        indices = reversed(range(self.num_timesteps))
         if progress:
             from tqdm.auto import tqdm
             indices = tqdm(indices)

@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import torch as th
-import torch.distributed as dist
 from PIL import Image
 from tools import logger
 from diffusionModel.diffusion import SamplerDDPM, SamplerDDIM
@@ -29,7 +28,7 @@ def main(sample_type):
     logger.log("sampling...")
     all_images = []
     all_labels = []
-    while len(all_images) < args_s['num_samples']:
+    while len(all_images) * args_s["batch_size"] < args_s['num_samples']:
         # 如果是类别条件生成，随机生成 class label
         model_kwargs = {}
         if args_m['class_cond']:
@@ -62,7 +61,7 @@ def main(sample_type):
         all_images.extend(sample.cpu().numpy())
         if args_m['class_cond']:
             all_labels.extend(classes.cpu().numpy())
-        logger.log(f"created {len(all_images)} samples")
+        logger.log(f"created {len(all_images) * args_s.batch_size} samples")
 
     # ------------ 保存类型：图像、numpy数组 ------------
     if "image" in sample_type:
@@ -95,17 +94,16 @@ def save_nparray(args_s, args_m, all_images, all_labels):
         label_arr = np.concatenate(all_labels, axis=0)
         label_arr = label_arr[: args_s["num_samples"]]
     
-    if dist.get_rank() == 0:
-        # 假设有 1000 次采样，shape_str = “1000x64x64x3”
-        shape_str = "x".join([str(x) for x in arr.shape])
-        out_path = os.path.join(logger.get_dir(), f"samples_{shape_str}.npz")
-        logger.log(f"saving to {out_path}")
-        
-        # 类别条件生成保存两个数组，无条件生成只保存图像数组
-        if args_m['class_cond']:
-            np.savez(out_path, arr, label_arr)
-        else:
-            np.savez(out_path, arr)
+    # 假设有 1000 次采样，shape_str = “1000x64x64x3”
+    shape_str = "x".join([str(x) for x in arr.shape])
+    out_path = os.path.join(logger.get_dir(), f"samples_{shape_str}.npz")
+    logger.log(f"saving to {out_path}")
+    
+    # 类别条件生成保存两个数组，无条件生成只保存图像数组
+    if args_m['class_cond']:
+        np.savez(out_path, arr, label_arr)
+    else:
+        np.savez(out_path, arr)
 
     logger.log("sampling complete")
 
