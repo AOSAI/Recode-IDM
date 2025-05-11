@@ -116,7 +116,7 @@ class ResBlock(TimestepBlock):
             args = tuple(inputs) + tuple(self.parameters())
             return CheckpointFunction.apply(self._forward, len(inputs), *args)
         else:
-            return self._forward
+            return self._forward(x, emb)
 
     def _forward(self, x, emb):
         h = self.in_layers(x)
@@ -157,7 +157,7 @@ class AttentionBlock(nn.Module):
             args = tuple(inputs) + tuple(self.parameters())
             return CheckpointFunction.apply(self._forward, len(inputs), *args)
         else:
-            return self._forward
+            return self._forward(x)
 
     def _forward(self, x):
         # 保存原始的 B、C、H、W，然后将图像 x 的空间形状压缩为一维 [b, c, hw]
@@ -313,7 +313,7 @@ class UNetModel(nn.Module):
                         )
                     )
                 if level and i == num_res_blocks:
-                    layers.append(Upsample(ch, conv_resample, dims=dims))
+                    layers.append(Upsample(ch, dims=dims))
                     ds //= 2
                 self.output_blocks.append(TimeEmbedSeq(*layers))
 

@@ -193,7 +193,7 @@ qkv = qkv.reshape(b * self.num_heads, -1, qkv.shape[2])
 
 这是标准的 QKV 自注意力机制的数学公式，看完应该比较容易理解 forward 中的代码：
 
-<img src="../public/docsImg/qkv_attention.jpeg" width="360">
+<img src="../docsImg/qkv_attention.jpeg" width="360">
 
 需要讲的重点有两个，一个是双开方，一个是 th.einsum 爱因斯坦求和约定。先对 einsum 的字母含义做一个说明：
 

@@ -112,25 +112,23 @@ def timestep_embedding(timesteps, dim, max_period=10000):
 # --------------- 精度转换，原本写在 fp16_util 文件中 ---------------
 def convert_module_to_f16(l):
     """ Convert primitive modules to float16. """
-    if isinstance(l, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
+    moduleType = (
+        nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d, 
+        nn.ConvTranspose3d
+    )
+    if isinstance(l, moduleType):
         l.weight.data = l.weight.data.half()
         l.bias.data = l.bias.data.half()
 
 
 def convert_module_to_f32(l):
     """ Convert primitive modules to float32. """
-    if isinstance(l, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
+    moduleType = (
+        nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d, 
+        nn.ConvTranspose3d
+    )
+    if isinstance(l, moduleType):
         l.weight.data = l.weight.data.float()
         l.bias.data = l.bias.data.float()
-
-
-# --------------- 时间步的正余弦高频编码 ---------------
-def scale_module(module, scale):
-    """
-    Scale the parameters of a module and return it.
-    """
-    for p in module.parameters():
-        p.detach().mul_(scale)
-    return module
 
 

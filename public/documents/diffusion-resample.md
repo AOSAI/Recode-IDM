@@ -1,6 +1,6 @@
 这一部分就是==重要性采样==，是一个优化训练效率和梯度估计质量的关键设计。在训练 diffusion model 时，我们每次都要对一个随机的 t 来训练，但是有的时间步（比如 t 很大或很小）训练贡献小，有的时间步 loss 震荡大、梯度有用。所以我们可以用不同的采样策略对时间步 t 进行“非均匀采样”，来提升训练效果和效率。
 
-![](../public/docsImg/importance_sampling-1.jpeg)
+![](../docsImg/importance_sampling-1.jpeg)
 
 ## 1. create_named_schedule_sampler
 

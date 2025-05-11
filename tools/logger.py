@@ -98,7 +98,7 @@ class JSONOutputFormat(KVWriter):
 class CSVOutputFormat(KVWriter):
     def __init__(self, filename):
         self.filename = filename
-        self.file = open(filename, mode='w', newline='')
+        self.file = open(filename, mode='w+t', newline='')
         self.writer = None
         self.fieldnames = []
 
@@ -254,7 +254,7 @@ def configure(dir=None, format_strs=None, log_suffix=""):
     """ If comm is provided, average all numerical stats across that comm """
     if dir is None:
         time_now = datetime.now().strftime("idm-%Y-%m-%d-%H-%M-%S-%f")
-        dir = osp.join("../output/", time_now)
+        dir = osp.join("./output/05_super_res/", time_now)
     
     assert isinstance(dir, str)
     dir = os.path.expanduser(dir)

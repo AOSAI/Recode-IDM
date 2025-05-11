@@ -1,5 +1,5 @@
 model:
-  image_size: 64
+  image_size: 128
   num_channels: 128
   num_res_blocks: 2
   num_heads: 4
@@ -7,24 +7,24 @@ model:
   learn_sigma: False
   class_cond: False
   use_checkpoint: False
-  attention_resolutions: "16,8"
-  use_scale_shift_norm: True
+  attention_resolutions: "32,16,8"
+  use_scale_shift_norm: False
   dropout: 0.1
 
 diffusion:
   steps: 1000
-  learn_sigma: true
+  learn_sigma: False
   sigma_small: False
   noise_schedule: "linear"
   use_kl: False
   predict_xstart: False
   rescale_timesteps: True
-  rescale_learned_sigmas: True
+  rescale_learned_sigmas: False
   timestep_respacing: ""
 
 sampling:
-  data_dir: ""
+  data_dir: "D:\\CodeReproduction\\afhq_v2\\train"
   clip_denoised: True
-  num_samples: 1000
+  num_samples: 10
   batch_size: 1
-  model_path: ""
+  model_path: "output\\01_model\\idm-train001\\model010000.pt"

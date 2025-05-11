@@ -1,0 +1,7 @@
+blobfile==3.0.0
+numpy==2.2.5
+Pillow==11.2.1
+PyYAML==6.0.2
+PyYAML==6.0.2
+torch==2.4.1
+tqdm==4.67.1

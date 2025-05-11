@@ -8,7 +8,7 @@ normal_kl 它做了一些莫名奇妙的 tensor 转换工作，而且还是不�
 
 KL 散度的计算，只和 return 有关，注释已经说明了，如果还是觉得有些难以理解，请看数学公式：
 
-![](../public/docsImg/normal_kl.png)
+![](../docsImg/normal_kl.png)
 
 ### 1.1 mean_flat
 
@@ -34,7 +34,7 @@ discretized_gaussian_log_likelihood 和 approx_standard_normal_cdf 原本也是�
 3. 但我们不能直接求连续高斯分布的 pdf（因为 x 是离散像素值）；
 4. 所以我们估的是 像素值 x 附近的一个小区间落入该高斯分布的概率，即：
 
-![](../public/docsImg/log-likelihood.jpeg)
+![](../docsImg/log-likelihood.jpeg)
 
 ### 2.1 标准正态累积分布近似
 
@@ -52,17 +52,17 @@ min_in = inv_stdv * (centered_x - 1.0 / 255.0)
 
 标准正态分布的 CDF 定义为：
 
-![](../public/docsImg/log-likelihood-3.jpeg)
+![](../docsImg/log-likelihood-3.jpeg)
 
 由于这个积分没有解析解，计算起来较为复杂，因此在实际应用中常使用近似方法。而 approx_standard_normal_cdf 函数就是对标准正态分布的累积分布函数（CDF）的一种快速近似。
 
 而我将 approx_standard_normal_cdf 函数换成了 torch.erf。它是 PyTorch 提供的误差函数（Error Function），定义为：
 
-![](../public/docsImg/log-likelihood-4.jpeg)
+![](../docsImg/log-likelihood-4.jpeg)
 
 通过换算，也可以拟合标准正态分布的 CDF，并且更为精确：
 
-![](../public/docsImg/log-likelihood-5.jpeg)
+![](../docsImg/log-likelihood-5.jpeg)
 
 当然，精确的代价就是计算速度在某些场景下会比 approx_standard_normal_cdf 中的 tanh 乘法慢一点，比如：
 
@@ -73,7 +73,7 @@ min_in = inv_stdv * (centered_x - 1.0 / 255.0)
 
 我们需要进行计算的对数似然的完整公式：
 
-![](../public/docsImg/log-likelihood-2.jpeg)
+![](../docsImg/log-likelihood-2.jpeg)
 
 🔹 Step 1：中心化并标准化输入：
 
@@ -83,7 +83,7 @@ min_in = inv_stdv * (centered_x - 1.0 / 255.0)
 
 计算该离散像素上下界分别落入分布的 CDF 值，即：
 
-![](../public/docsImg/log-likelihood-1.jpeg)
+![](../docsImg/log-likelihood-1.jpeg)
 
 ```py
 # 原本的 CDF 近似计算

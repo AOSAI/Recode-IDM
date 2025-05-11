@@ -142,7 +142,6 @@ class TrainLoop:
                 k: v[i : i + self.microbatch].to(self.device)
                 for k, v in cond.items()
             }
-            last_batch = (i + self.microbatch) >= batch.shape[0]
 
             # 重要性采样（resample）返回的新的时间步和权重
             t, weights = self.schedule_sampler.sample(micro.shape[0], self.device)
@@ -152,8 +151,7 @@ class TrainLoop:
                 self.diffusion.training_losses,
                 self.model, micro, t, model_kwargs=micro_cond,
             )
-            if last_batch:
-                losses = compute_losses()  # 实际执行损失函数
+            losses = compute_losses()  # 实际执行损失函数
 
             # 如果重要性采样使用了 loss-second-moment，更新权重（单卡版本）
             if isinstance(self.schedule_sampler, LossSecondMomentResampler):

@@ -87,4 +87,33 @@ use_fp16 代表是否使用 float16 这个精度。fp16_scale_growth 表示**半
 
 ### 1.4 采样 sampling
 
+- clip_denoised: True
+- num_samples: 10000
+
+num_samples 代表实际想要采样多少张图片；clip_denoised 它控制是否对模型预测的图像 x_start 进行 像素范围裁剪，通常是裁剪到 [-1, 1] 区间。
+
+✅ 为什么要裁剪？
+
+1. 防止像素爆炸：部分时间步（尤其是早期）模型预测不准，x_0 可能超出值域 [-1, 1]，导致后续计算时出现异常放大。
+2. 提高生成图像质量：可避免强噪点或局部伪影。
+3. 最后，如果训练中用过 clip_denoised=True，采样时也建议打开它。保持训练-测试一致性。
+
+- batch_size: 16
+- use_ddim: False
+- model_path: ""
+
 ## 2. 超分的训练和采样
+
+### 2.1 采样
+
+model 部分的参数 image_size 变成了 large_size 和 small_size，前者为高分辨率图像尺寸，后者为低分辨率图像尺寸。
+
+sample 部分的参数多了一个 base_samples 参数，是一个 .npz 文件 的路径。
+
+### 2.2 训练
+
+训练部分只换了一个 image_size，和采样一样，其他地方都没有变动。
+
+## 3. 负对数似然估计 NLL
+
+只有 sampling 这里换了几个参数，去掉了 use_ddim，新增了一个 data_dir，这个是图像数据集的路径。

@@ -15,7 +15,7 @@ from diffusionModel.diffusion import SamplerDDPM
 
 def main(sample_type):
     # ------------ 参数字典、硬件设备、日志文件的初始化 ------------
-    config = load_config("../public/configs/image_sample.yaml")
+    config = load_config("./public/configs/super_res_sample.yaml")
     args_s = config['sampling']
     args_m = config['model']
     args_d = config['diffusion']
@@ -25,16 +25,18 @@ def main(sample_type):
     # ------------ 扩散模型、神经网络、低分辨率图像的初始化 ------------
     logger.log("creating model...")
     model, diffusion = sr_create_model_and_diffusion(args_m, args_d)
-    model.load_state_dict(th.load(args_s.model_path, map_location=device))
+    model.load_state_dict(th.load(args_s["model_path"], map_location=device))
     model.to(device)
     model.eval()
     logger.log("loading data...")
-    data = load_data_for_worker(args_s.base_samples, args_s.batch_size, args_m.class_cond)
+    data = load_data_for_worker(
+        args_s["base_samples"], args_s["batch_size"], args_m["class_cond"]
+    )
 
     # ------------ 循环采样 ------------
     logger.log("creating samples...")
     all_images = []
-    while len(all_images) * args_s["batch_size"] < args_s['num_samples']:
+    while len(all_images) < args_s['num_samples']:
         model_kwargs = next(data)
         model_kwargs = {k: v.to(device) for k, v in model_kwargs.items()}
 
@@ -53,7 +55,7 @@ def main(sample_type):
 
         # 超分输入的是模糊图，不依赖类别标签，所以只处理图像本身
         all_images.append(sample.cpu().numpy())
-        logger.log(f"created {len(all_images) * args_s.batch_size} samples")
+        logger.log(f"created {len(all_images)} samples")
 
         # ------------ 保存类型：图像、numpy数组 ------------
     if "image" in sample_type:

@@ -59,7 +59,7 @@ LEARNED_RANGE 的部分，模型不要直接预测方差，而是预测一个 [-
 4. frac = (model_var_values + 1) / 2: 将其映射到 [0, 1]；
 5. 然后做线性插值：
 
-![](../public/docsImg/sampleDDPM-1.png)
+![](../docsImg/sampleDDPM-1.png)
 
 这个做法的优势是：数值更稳定（输出范围可控）；收敛更快，特别是在训练初期。
 
@@ -87,7 +87,7 @@ kl = mean_flat(kl) / np.log(2.0)
 
 因为 KL 散度的单位是 nat（自然对数，底数是 e），但很多文献或评估指标更喜欢用 bit（底数是 2 的对数）。所以根据对数底变换公式，把每张图的 KL 损失从 nat 单位换算为 bit 单位：
 
-![](../public/docsImg/normal_kl-1.png)
+![](../docsImg/normal_kl-1.png)
 
 normal_kl 和 mean_flat 函数详解请看 diffusion-utils.md 文件。对数自然估计的计算也一样。
 
@@ -185,7 +185,7 @@ sample = out["mean"] + nonzero_mask * torch.exp(0.5 * out["log_variance"]) * noi
 
 这三个计算的重点是第三句，本质上就是从 x_t 到 x\_(t-1) 的高斯采样过程，用公式来表达是这样的：
 
-![](../public/docsImg/sampleDDPM-1.png)
+![](../docsImg/sampleDDPM-1.png)
 
 1. 均值分布：mean = out["mean"]
 2. 方差分布：std = torch.exp(0.5 \_ out["log_variance"])
@@ -210,11 +210,11 @@ sample = out["mean"] + nonzero_mask * torch.exp(0.5 * out["log_variance"]) * noi
 
 这个函数写在基类 GaussianDiffusion 中的，但它只有 DDIM 用，所以就放这里写了。这个函数的作用是从 x_0 预测噪声，这一部分是从前向扩散加噪公式，反推而得到的。
 
-![](../public/docsImg/ddim-1.jpeg)
+![](../docsImg/ddim-1.jpeg)
 
 从这个变换的方式来看，我们完全可以用 sqrt_alphas_cumprod 和 sqrt_one_minus_alphas_cumprod 这两个参数来计算 ε，为什么要分子分母同乘一个 根号下的 alphas_bar 分之一，将其转换为 sqrt_recip_alphas_cumprod 和 sqrt_recipm1_alphas_cumprod 呢？
 
-![](../public/docsImg/ddim-2.jpeg)
+![](../docsImg/ddim-2.jpeg)
 
 sqrt_alphas_cumprod 和 sqrt_one_minus_alphas_cumprod 这两项，在 t 很小时（接近 0）或很大时（接近 1）会非常接近 0，容易引起浮点不稳定或分母为 0 的问题。
 
@@ -224,7 +224,7 @@ sqrt_alphas_cumprod 和 sqrt_one_minus_alphas_cumprod 这两项，在 t 很小�
 
 sample 是外部采样的调用入口，sample_loop 是循环采样，这两部分和 DDPM 的采样没什么区别。就是多了一个 eta 参数。这个参数是 DDIM 中的 可控噪声系数，在 ddim_sample 中的 sigma 计算时用到了：
 
-![](../public/docsImg/ddim-3.jpeg)
+![](../docsImg/ddim-3.jpeg)
 
 DDIM 的采样过程实际上是一个通用公式，可以通过参数 η∈[0,1] 控制采样过程的“随机程度”：当 η=0：完全确定性采样（DDIM）；当 η=1：等价于原始 DDPM 的随机性采样。eta 就是这个 η。（论文中 Equation 16 的噪声标准差项）
 
@@ -234,11 +234,11 @@ DDIM 的采样过程实际上是一个通用公式，可以通过参数 η∈[0,
 
 论文中采样的核心大概是这么一个公式：
 
-![](../public/docsImg/ddim-4.jpeg)
+![](../docsImg/ddim-4.jpeg)
 
 sigma 就是噪声分布的标准差 std，通过参数 η 控制最终采样的随机性；mean_pred 就是这个高斯分布的均值部分：
 
-![](../public/docsImg/ddim-5.jpeg)
+![](../docsImg/ddim-5.jpeg)
 
 通过调用 p_mean_variance 返回字典中的值可以看出，pred_xstart 是核心，你只要预测出 x_bar_0，其余的 epsilon、mean、sigma 都能推出来。这使得 DDIM 非常方便支持多种模型结构，比如预测 x_bar_0、预测 ϵ、预测 velocity（如 SD 中的 v-prediction）等，都能转换到 DDIM 框架中统一采样。
 
@@ -251,7 +251,7 @@ sigma 就是噪声分布的标准差 std，通过参数 η 控制最终采样的
 
 这就是所谓的，非马尔可夫-确定性扩散过程（Non-Markovian, Deterministic Diffusion Process）。下面这个公式就是 mean_pred，也就是返回的 sample 值。
 
-![](../public/docsImg/ddim-6.jpeg)
+![](../docsImg/ddim-6.jpeg)
 
 这就相当于是加噪声，但不再采样随机的 ε，而是使用模型自己估计的 ε。在训练图像编辑、图像插值、风格迁移等任务的“编码阶段”十分有用：
 

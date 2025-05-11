@@ -1,1 +1,5 @@
-public/mnist/
+output/
+tools/__pycache__/
+script/__pycache__/
+networkModel/__pycache__/
+diffusionModel/__pycache__/

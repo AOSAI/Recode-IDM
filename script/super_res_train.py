@@ -11,7 +11,7 @@ from tools.train_util import TrainLoop
 
 def main():
     # ------------ 参数字典、硬件设备、日志文件的初始化 ------------
-    config = load_config("../public/configs/super_res_train.yaml")
+    config = load_config("./public/configs/super_res_train.yaml")
     args_t = config['training']
     args_m = config['model']
     args_d = config['diffusion']
@@ -22,16 +22,16 @@ def main():
     logger.log("creating model...")
     model, diffusion = sr_create_model_and_diffusion(args_m, args_d)
     model.to(device)
-    schedule_sampler = create_named_schedule_sampler(args_t.schedule_sampler, diffusion)
+    schedule_sampler = create_named_schedule_sampler(args_t["schedule_sampler"], diffusion)
 
     # ------------ 数据集图像的预处理 ------------
     logger.log("creating data loader...")
     data = load_superres_data(
-        args_t.data_dir,
-        args_t.batch_size,
-        large_size=args_m.large_size,
-        small_size=args_m.small_size,
-        class_cond=args_m.class_cond,
+        args_t["data_dir"],
+        args_t["batch_size"],
+        large_size=args_m["large_size"],
+        small_size=args_m["small_size"],
+        class_cond=args_m["class_cond"],
     )
 
     # ------------ 开始走训练流程 ------------
@@ -40,18 +40,18 @@ def main():
         model=model,
         diffusion=diffusion,
         data=data,
-        batch_size=args_t.batch_size,
-        microbatch=args_t.microbatch,
-        lr=args_t.lr,
-        ema_rate=args_t.ema_rate,
-        log_interval=args_t.log_interval,
-        save_interval=args_t.save_interval,
-        resume_checkpoint=args_t.resume_checkpoint,
-        use_fp16=args_t.use_fp16,
-        fp16_scale_growth=args_t.fp16_scale_growth,
+        batch_size=args_t["batch_size"],
+        microbatch=args_t["microbatch"],
+        lr=args_t["lr"],
+        ema_rate=args_t["ema_rate"],
+        log_interval=args_t["log_interval"],
+        save_interval=args_t["save_interval"],
+        resume_checkpoint=args_t["resume_checkpoint"],
+        use_fp16=args_t["use_fp16"],
+        fp16_scale_growth=args_t["fp16_scale_growth"],
         schedule_sampler=schedule_sampler,
-        weight_decay=args_t.weight_decay,
-        lr_anneal_steps=args_t.lr_anneal_steps,
+        weight_decay=args_t["weight_decay"],
+        lr_anneal_steps=args_t["lr_anneal_steps"],
     ).run_loop()
 
 

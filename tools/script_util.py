@@ -1,4 +1,3 @@
-import argparse
 import yaml
 from diffusionModel.respace import SpacedDiffusion, space_timesteps
 from networkModel.unet import SuperResModel, UNetModel
@@ -137,6 +136,6 @@ def create_gaussian_diffusion(
 
 # 从 ymal 文件中获取参数字典
 def load_config(path):
-    with open(path, 'r') as f:
+    with open(path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
     return config

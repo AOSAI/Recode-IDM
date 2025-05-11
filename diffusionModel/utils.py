@@ -1,5 +1,4 @@
 import torch as th
-import numpy as np
 import enum
 import math
 

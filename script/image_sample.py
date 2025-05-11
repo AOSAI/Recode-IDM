@@ -10,7 +10,7 @@ from tools.script_util import (
 
 def main(sample_type):
     # ------------ 参数字典、硬件设备、日志文件的初始化 ------------
-    config = load_config("../public/configs/image_sample.yaml")
+    config = load_config("./public/configs/image_sample.yaml")
     args_s = config['sampling']
     args_m = config['model']
     args_d = config['diffusion']
@@ -20,7 +20,9 @@ def main(sample_type):
     # ------------ 扩散模型、神经网络的初始化 ------------
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(args_m, args_d)
-    model.load_state_dict(th.load(args_s.model_path, map_location=device))
+    model.load_state_dict(
+        th.load(args_s["model_path"], map_location=device, weights_only=True)
+    )
     model.to(device)
     model.eval()
 
@@ -28,7 +30,7 @@ def main(sample_type):
     logger.log("sampling...")
     all_images = []
     all_labels = []
-    while len(all_images) * args_s["batch_size"] < args_s['num_samples']:
+    while len(all_images) < args_s['num_samples']:
         # 如果是类别条件生成，随机生成 class label
         model_kwargs = {}
         if args_m['class_cond']:
@@ -61,7 +63,7 @@ def main(sample_type):
         all_images.extend(sample.cpu().numpy())
         if args_m['class_cond']:
             all_labels.extend(classes.cpu().numpy())
-        logger.log(f"created {len(all_images) * args_s.batch_size} samples")
+        logger.log(f"created {len(all_images)} samples")
 
     # ------------ 保存类型：图像、numpy数组 ------------
     if "image" in sample_type:
@@ -71,7 +73,7 @@ def main(sample_type):
 
 
 def save_image(args_s, args_m, all_images, all_labels):
-    save_dir = os.path.join(logger.get_dir(), "samples")
+    save_dir = os.path.join(logger.get_dir(), "sampled_images")
     os.makedirs(save_dir, exist_ok=True)
 
     for i, img_arr in enumerate(all_images[: args_s["num_samples"]]):

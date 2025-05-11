@@ -1,5 +1,5 @@
 model:
-  large_size: 256
+  large_size: 128
   small_size: 64
   num_channels: 128
   num_res_blocks: 2
@@ -8,24 +8,24 @@ model:
   learn_sigma: False
   class_cond: False
   use_checkpoint: False
-  attention_resolutions: "16,8"
-  use_scale_shift_norm: True
+  attention_resolutions: "32,16,8"
+  use_scale_shift_norm: False
   dropout: 0.1
 
 diffusion:
   steps: 1000
-  learn_sigma: true
-  noise_schedule: "linear"
+  learn_sigma: False
+  noise_schedule: "cosine"
   use_kl: False
   predict_xstart: False
-  rescale_timesteps: True
-  rescale_learned_sigmas: True
-  timestep_respacing: ""
+  rescale_timesteps: False
+  rescale_learned_sigmas: False
+  timestep_respacing: "ddim250"
 
 sampling:
   clip_denoised: True
-  num_samples: 10000
+  num_samples: 32
   batch_size: 16
-  use_ddim: False
+  use_ddim: True
   model_path: ""
   base_samples: ""

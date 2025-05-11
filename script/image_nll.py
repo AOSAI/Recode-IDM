@@ -13,7 +13,7 @@ from tools.script_util import create_model_and_diffusion, load_config
 
 def main():
     # ------------ 参数字典、硬件设备、日志文件的初始化 ------------
-    config = load_config("../public/configs/image_nll.yaml")
+    config = load_config("./public/configs/image_nll.yaml")
     args_s = config['sampling']
     args_m = config['model']
     args_d = config['diffusion']
@@ -23,24 +23,26 @@ def main():
     # ------------ 扩散模型、神经网络的初始化 ------------
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(args_m, args_d)
-    model.load_state_dict(th.load(args_s.model_path, map_location=device))
+    model.load_state_dict(
+        th.load(args_s["model_path"], map_location=device, weights_only=True)
+    )
     model.to(device)
     model.eval()
 
     # ------------ 数据集图像的预处理，测试、不打乱数据顺序 ------------
     logger.log("creating data loader...")
     data = load_data(
-        data_dir=args_s.data_dir,
-        batch_size=args_s.batch_size,
-        image_size=args_m.image_size,
-        class_cond=args_m.class_cond,
+        data_dir=args_s["data_dir"],
+        batch_size=args_s["batch_size"],
+        image_size=args_m["image_size"],
+        class_cond=args_m["class_cond"],
         deterministic=True,
     )
 
     # ------------ 开始评估模型 ------------
     logger.log("evaluating...")
     run_bpd_evaluation(
-        model, diffusion, device, data, args_s.num_samples, args_s.clip_denoised
+        model, diffusion, device, data, args_s["num_samples"], args_s["clip_denoised"]
     )
 
 # 对给定数量 num_samples 的图像进行 bpd 评估，包括：
